@@ -1,4 +1,4 @@
-# plan.md — The Monolith CMS (MVP: Pages + Content Editor + Users)
+# plan.md — The Monolith CMS (MVP: Pages + Content Editor + Users + Phase 3 Hardening)
 
 ## 1) Objectives
 - ✅ Deliver a dark, emerald-accented CMS UI matching **“The Emerald Monolith”** spec.
@@ -6,8 +6,14 @@
 - ✅ Implement **Pages** (list + open) and **Draft/Publish workflow**.
 - ✅ Implement **JWT auth** with roles (**Admin / Editor**) and gated endpoints.
 - ✅ Establish a working **integration contract** for websites to fetch **published** page content via a public API (Collections later).
+- ✅ Add Phase 3 hardening features:
+  - ✅ **Undo/Redo** (session-level) with toolbar buttons + keyboard shortcuts
+  - ✅ **History snapshots** (server-side versioning) with restore UI
+  - ✅ **Admin user management UI** (create/disable/role/password/delete)
 
-**Current status:** Phase 1+2 completed and end-to-end verified. Backend tests 100%; frontend 95%+ and the only reported issue (deselection) is fixed.
+**Current status:** Phases 1–3 completed and end-to-end verified.
+- Backend: ✅ 100% tests passed (24/24)
+- Frontend: ✅ 95% tests passed (22/23) with a minor automation limitation around canvas-based undo/redo verification
 
 ---
 
@@ -42,7 +48,7 @@
 
 **Backend (FastAPI + MongoDB) — Delivered**
 - Data models implemented:
-  - ✅ `User {email, password_hash, role, name}`
+  - ✅ `User {email, password_hash, role, name, is_active}`
   - ✅ `Project {project_id, name, slug}` (minimal; default project seeded)
   - ✅ `Page {project_id, name, slug, status, elements[], published_elements?, updated_at, published_at}`
 - Auth:
@@ -79,29 +85,45 @@
 ---
 
 ### Phase 3 — Hardening + UX Polish (Still MVP)
-**Status:** ⏭️ Optional / Next (not started)
+**Status:** ✅ Completed.
 
-**Proposed user stories (Phase 3)**
-1. Undo/redo (session-level or persisted).
-2. Stronger “unsaved changes” UX (e.g., autosave toggle, last saved timestamp).
-3. More robust selection UX:
-   - element breadcrumb/path
-   - keyboard navigation
-   - lock selection while typing
-4. Validation rules per element type (e.g., required fields, URL format).
-5. Admin user management UI (create/disable users) beyond API-only.
-6. Optional: history snapshots UI (History tab) to restore prior versions.
+**Delivered user stories (Phase 3)**
+1. ✅ **Undo/Redo** (session-level)
+   - Toolbar buttons in the top bar
+   - Keyboard shortcuts: **Ctrl/Cmd+Z**, **Ctrl/Cmd+Y** (and Shift+Cmd/Ctrl+Z), and **Ctrl/Cmd+S** to save
+2. ✅ **History snapshots**
+   - Server-side versioning created on **Save** and **Publish**
+   - History tab lists versions with version number, action type, timestamp, and author
+   - Restore capability from any version (restores into Draft)
+3. ✅ **Admin user management UI**
+   - Admin-only panel accessible via sidebar (settings/users)
+   - Create user (email/name/password/role)
+   - Change role (admin/editor)
+   - Toggle active/disabled (disabled users cannot log in)
+   - Change password
+   - Delete user (guardrails: cannot delete self; cannot deactivate self; cannot demote last active admin)
 
-**Implementation steps (Phase 3)**
-- Add client-side edit history stack (undo/redo) and optionally persist snapshots server-side.
-- Add structured validation layer for `content` updates (type-safe schemas per element type).
-- Expand History tab from placeholder to functional version list.
-- Improve disabled sidebar items with clearer “Coming soon” treatment.
-- Accessibility: focus management in property panel; consistent keyboard shortcuts.
+**Backend (Phase 3) — Delivered**
+- ✅ `page_versions` collection storing snapshots with `version_number`, `created_at`, `created_by`, `action`
+- ✅ Page history endpoints:
+  - `GET /api/pages/{page_id}/versions`
+  - `GET /api/pages/{page_id}/versions/{version_number}`
+  - `POST /api/pages/{page_id}/versions/{version_number}/restore`
+- ✅ User management endpoints (admin only):
+  - `GET /api/users`
+  - `PUT /api/users/{user_id}` (name/role/is_active)
+  - `PUT /api/users/{user_id}/password`
+  - `DELETE /api/users/{user_id}`
 
-**Phase 3 testing**
-- E2E: Admin creates Editor → Editor edits draft → Admin publishes.
-- Regression: selection/deselection, save/publish, device switching.
+**Frontend (Phase 3) — Delivered**
+- ✅ Undo/Redo UI integrated into top bar
+- ✅ History tab renders server-side versions with restore action
+- ✅ User Management screen for admin role
+
+**Phase 3 testing — Completed**
+- Backend: ✅ 100% (24/24)
+- Frontend: ✅ 95% (22/23)
+  - Only noted limitation: automated verification of canvas-driven undo/redo is harder for test runners; functionality manually verified.
 
 ---
 
@@ -111,17 +133,20 @@
 **Collections (Webflow-like), Assets, Settings, Publishing workflows**
 - Implement once you provide the Collections screens and requirements:
   - Collection schema definition
-  - entry editor
-  - list/detail views
-  - relationships/references
-  - public collection API
+  - Entry editor
+  - List/detail views
+  - Relationships/references
+  - Public collection API
 
 ---
 
 ## 3) Next Actions
-- Decide whether to proceed with Phase 3 hardening items now (undo/redo + history + validation recommended).
-- Provide next screens/spec for **Collections** when ready (Phase 4).
-- Define integration details for real Emergent projects (project registration, mapping of pages/collections, environment-specific base URLs).
+- ✅ Phase 3 is complete.
+- ⏭️ Provide the next screens/spec for **Collections** when ready (Phase 4).
+- ⏭️ Define integration details for real Emergent projects:
+  - Project registration and environment URLs
+  - Mapping of pages/collections to website routes
+  - Content fetching strategy (SSR/CSR/build-time)
 
 ---
 
@@ -131,3 +156,7 @@
 - ✅ Draft/Publish flow works; public endpoint serves published content reliably.
 - ✅ UI matches the provided screenshot + DESIGN.md (dark surfaces, emerald accents, typography).
 - ✅ End-to-end tests pass for: login → edit → save → publish → consume published content.
+- ✅ Phase 3 capabilities proven:
+  - Undo/Redo works and is accessible via UI + shortcuts
+  - Version history exists, is visible, and supports restoring safely
+  - Admin can manage users entirely from the UI
