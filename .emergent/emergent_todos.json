@@ -1,0 +1,26 @@
+[
+  {
+    "content": "Phase 1+2: Build complete CMS backend (Auth + Pages CRUD + Content API)",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 1+2: Get design guidelines from design agent",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 1+2: Build complete CMS frontend (Editor UI, Canvas, Property Panel, Auth)",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 1+2: All user stories covered in Development",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 1+2: End to End Testing using Testing Agent",
+    "status": "pending"
+  },
+  {
+    "content": "Phase 1+2: Fix all bugs from testing",
+    "status": "pending"
+  }
+]
