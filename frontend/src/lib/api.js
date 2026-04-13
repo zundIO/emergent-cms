@@ -68,4 +68,11 @@ export const usersAPI = {
   delete: (userId) => api.delete(`/api/users/${userId}`),
 };
 
+// Projects
+export const projectsAPI = {
+  list: () => api.get('/api/projects'),
+  create: (data) => api.post('/api/projects', data),
+  importSchema: (data) => api.post('/api/projects/import', data),
+};
+
 export default api;

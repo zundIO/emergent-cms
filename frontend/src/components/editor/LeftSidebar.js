@@ -17,7 +17,7 @@ const LeftSidebar = ({ activeSidebar, onSidebarClick, isAdmin }) => {
     { id: 'collections', icon: Layers, label: 'Collections', enabled: false },
     { id: 'assets', icon: Image, label: 'Assets', enabled: false },
     { id: 'settings', icon: isAdmin ? Users : Settings, label: isAdmin ? 'User Management' : 'Settings', enabled: isAdmin },
-    { id: 'integration', icon: Rocket, label: 'Integration Guide', enabled: true },
+    { id: 'integration', icon: Rocket, label: 'Integration Guide', enabled: isAdmin },
   ];
 
   return (

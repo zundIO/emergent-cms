@@ -175,6 +175,7 @@ class ProjectCreateRequest(BaseModel):
 class SchemaImportRequest(BaseModel):
     project_name: str
     pages: List[Dict[str, Any]]
+    source_updated_at: Optional[str] = None  # ISO timestamp of when the website was last built/changed
 
 
 # ============================================================
@@ -520,32 +521,21 @@ async def create_project(body: ProjectCreateRequest, current_user: dict = Depend
 async def import_schema(body: SchemaImportRequest, current_user: dict = Depends(require_admin)):
     """
     Import a cms-schema.json to create/update a project with all pages and elements.
-    
-    Expected body format:
-    {
-      "project_name": "My Website",
-      "pages": [
-        {
-          "name": "Homepage",
-          "slug": "/",
-          "elements": [
-            {
-              "id": "hero-title",
-              "type": "heading",
-              "tag": "h1",
-              "label": "Hero Title",
-              "content": { "text": "Default headline" },
-              "style": { "classes": "text-5xl font-bold" },
-              "children": []
-            }
-          ]
-        }
-      ]
-    }
+    Uses timestamp comparison to decide which content wins:
+    - If CMS editor changed content AFTER last import → keep CMS version
+    - If Emergent changed content AFTER last CMS edit → take Emergent version
+    - New elements always get added
     """
-    # Create or find project
     project_id = body.project_name.lower().replace(" ", "-").replace("_", "-")
     existing_project = projects_col.find_one({"project_id": project_id})
+
+    now = datetime.now(timezone.utc)
+    source_ts = now
+    if body.source_updated_at:
+        try:
+            source_ts = datetime.fromisoformat(body.source_updated_at.replace("Z", "+00:00"))
+        except Exception:
+            source_ts = now
 
     if not existing_project:
         projects_col.insert_one({
@@ -553,41 +543,53 @@ async def import_schema(body: SchemaImportRequest, current_user: dict = Depends(
             "project_id": project_id,
             "slug": project_id,
             "description": f"Imported project: {body.project_name}",
-            "created_at": datetime.now(timezone.utc),
+            "created_at": now,
+            "last_imported_at": now,
         })
+    else:
+        projects_col.update_one(
+            {"project_id": project_id},
+            {"$set": {"last_imported_at": now}}
+        )
 
-    # Import pages
     imported_pages = []
     for page_data in body.pages:
         slug = page_data.get("slug", "/")
         name = page_data.get("name", "Untitled")
         elements = page_data.get("elements", [])
 
-        # Check if page with this slug already exists for the project
         existing_page = pages_col.find_one({"project_id": project_id, "slug": slug})
 
         if existing_page:
-            # Update existing page elements (merge - keep CMS edits where element IDs match)
-            merged_elements = merge_elements(existing_page.get("elements", []), elements)
+            # Smart merge with timestamp comparison
+            last_import = existing_project.get("last_imported_at") if existing_project else None
+            merged_elements = merge_elements_with_timestamps(
+                existing_page.get("elements", []),
+                elements,
+                existing_page.get("element_timestamps", {}),
+                source_ts,
+            )
             pages_col.update_one(
                 {"_id": existing_page["_id"]},
                 {"$set": {
                     "elements": merged_elements,
                     "name": name,
-                    "updated_at": datetime.now(timezone.utc),
+                    "updated_at": now,
+                    "last_imported_at": now,
                 }}
             )
             imported_pages.append({"name": name, "slug": slug, "action": "updated"})
         else:
-            # Create new page
             pages_col.insert_one({
                 "name": name,
                 "slug": slug,
                 "status": "draft",
                 "project_id": project_id,
-                "created_at": datetime.now(timezone.utc),
-                "updated_at": datetime.now(timezone.utc),
+                "created_at": now,
+                "updated_at": now,
+                "last_imported_at": now,
                 "elements": elements,
+                "element_timestamps": {},
             })
             imported_pages.append({"name": name, "slug": slug, "action": "created"})
 
@@ -600,11 +602,14 @@ async def import_schema(body: SchemaImportRequest, current_user: dict = Depends(
     }
 
 
-def merge_elements(existing_elements, new_elements):
+def merge_elements_with_timestamps(existing_elements, new_elements, element_timestamps, source_ts):
     """
-    Merge new elements with existing ones.
-    - If element ID matches: keep existing content (CMS edits), update style from new (design changes)
-    - If element ID is new: add it
+    Smart merge with timestamp comparison:
+    - element_timestamps: { element_id: ISO_string } tracks when CMS editors last changed each element
+    - source_ts: when the website/schema was last built
+    - If CMS edit timestamp > source_ts → keep CMS content (editor's change is newer)
+    - If CMS edit timestamp <= source_ts → take new content (Emergent's change is newer)
+    - New elements (not in existing): always add
     """
     existing_map = {}
     def build_map(elements):
@@ -619,15 +624,27 @@ def merge_elements(existing_elements, new_elements):
         for new_el in new_els:
             eid = new_el.get("id")
             if eid in existing_map:
-                # Keep CMS content, take new style/structure
-                merged = {
-                    **new_el,
-                    "content": existing_map[eid].get("content", new_el.get("content", {})),
-                }
+                cms_edit_ts_str = element_timestamps.get(eid)
+                cms_edit_ts = None
+                if cms_edit_ts_str:
+                    try:
+                        cms_edit_ts = datetime.fromisoformat(cms_edit_ts_str.replace("Z", "+00:00"))
+                    except Exception:
+                        cms_edit_ts = None
+
+                # Decide: keep CMS content or take Emergent's new content
+                if cms_edit_ts and cms_edit_ts > source_ts:
+                    # CMS editor changed this AFTER the website was built → keep CMS content
+                    merged = {**new_el, "content": existing_map[eid].get("content", new_el.get("content", {}))}
+                else:
+                    # Emergent's version is newer or no CMS edit → take new content
+                    merged = {**new_el}
+
                 if new_el.get("children"):
                     merged["children"] = merge_tree(new_el["children"])
                 result.append(merged)
             else:
+                # New element from Emergent → add it
                 result.append(new_el)
         return result
 
@@ -678,9 +695,12 @@ async def update_page_content(page_id: str, update: PageContentUpdate, current_u
     updated = update_element_content(elements, update.element_id, update.content)
     if not updated:
         raise HTTPException(status_code=404, detail=f"Element {update.element_id} not found")
+    # Track per-element edit timestamp
+    element_timestamps = page.get("element_timestamps", {})
+    element_timestamps[update.element_id] = datetime.now(timezone.utc).isoformat()
     pages_col.update_one(
         {"_id": ObjectId(page_id)},
-        {"$set": {"elements": elements, "updated_at": datetime.now(timezone.utc), "status": "draft"}}
+        {"$set": {"elements": elements, "updated_at": datetime.now(timezone.utc), "status": "draft", "element_timestamps": element_timestamps}}
     )
     return {"success": True, "element_id": update.element_id}
 
@@ -692,11 +712,14 @@ async def update_page_content_bulk(page_id: str, body: PageBulkContentUpdate, cu
         raise HTTPException(status_code=404, detail="Page not found")
     create_page_version(page_id, page.get("elements", []), current_user.get("email", "unknown"), "save")
     elements = page.get("elements", [])
+    element_timestamps = page.get("element_timestamps", {})
+    now_iso = datetime.now(timezone.utc).isoformat()
     for upd in body.updates:
         update_element_content(elements, upd.element_id, upd.content)
+        element_timestamps[upd.element_id] = now_iso
     pages_col.update_one(
         {"_id": ObjectId(page_id)},
-        {"$set": {"elements": elements, "updated_at": datetime.now(timezone.utc), "status": "draft"}}
+        {"$set": {"elements": elements, "updated_at": datetime.now(timezone.utc), "status": "draft", "element_timestamps": element_timestamps}}
     )
     return {"success": True, "updated_count": len(body.updates)}
 

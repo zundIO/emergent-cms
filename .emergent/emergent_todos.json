@@ -1,26 +1,22 @@
 [
   {
-    "content": "Phase 4: Backend - Multi-project support + Schema Import API + Public content delivery endpoints",
+    "content": "Fix Emergent Anweisung: Make it one complete self-contained instruction block",
     "status": "completed"
   },
   {
-    "content": "Phase 4: Client Library - Vanilla JS snippet (client.js) for any website",
+    "content": "Integration Guide: Only visible to admins",
     "status": "completed"
   },
   {
-    "content": "Phase 4: Client Library - React Hook (useMonolithCMS) for React/Emergent websites",
+    "content": "Add Schema Import UI in the CMS (admin can import/upload schema)",
     "status": "completed"
   },
   {
-    "content": "Phase 4: Integration Documentation - Complete Emergent instruction document",
+    "content": "Add timestamp-based smart merge (CMS edit vs. Emergent change comparison)",
     "status": "completed"
   },
   {
-    "content": "Phase 4: End to End Testing",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 4: Fix all bugs from testing (none - only dev env issues)",
-    "status": "completed"
+    "content": "End to End Testing",
+    "status": "in_progress"
   }
 ]

@@ -1,9 +1,15 @@
-import React, { useState } from 'react';
-import { Copy, Check, ExternalLink, FileJson, Box, Terminal } from 'lucide-react';
-import { motion } from 'framer-motion';
+import React, { useState, useRef } from 'react';
+import { Copy, Check, Upload, FileJson, Box, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { projectsAPI } from '../../lib/api';
 
 const IntegrationDocs = ({ cmsUrl, onClose }) => {
   const [copiedBlock, setCopiedBlock] = useState(null);
+  const [importJson, setImportJson] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const [importError, setImportError] = useState('');
+  const fileInputRef = useRef(null);
 
   const copyToClipboard = (text, blockId) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -12,21 +18,172 @@ const IntegrationDocs = ({ cmsUrl, onClose }) => {
     });
   };
 
-  const CopyButton = ({ text, blockId }) => (
-    <button
-      onClick={() => copyToClipboard(text, blockId)}
-      className="absolute top-3 right-3 w-8 h-8 rounded-[4px] grid place-items-center transition-colors duration-150"
-      style={{
-        backgroundColor: 'rgba(255,255,255,0.06)',
-        color: copiedBlock === blockId ? 'var(--primary-2)' : 'var(--muted)',
-      }}
-    >
-      {copiedBlock === blockId ? <Check size={14} /> : <Copy size={14} />}
-    </button>
-  );
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      setImportJson(evt.target.result);
+      setImportError('');
+      setImportResult(null);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleImport = async () => {
+    setImportError('');
+    setImportResult(null);
+    let parsed;
+    try {
+      parsed = JSON.parse(importJson);
+    } catch {
+      setImportError('Ungültiges JSON. Bitte überprüfe das Format.');
+      return;
+    }
+    if (!parsed.project_name || !parsed.pages) {
+      setImportError('Schema benötigt "project_name" und "pages" Felder.');
+      return;
+    }
+    setImporting(true);
+    try {
+      const res = await projectsAPI.importSchema(parsed);
+      setImportResult(res.data);
+      setImportJson('');
+    } catch (err) {
+      setImportError(err.response?.data?.detail || 'Import fehlgeschlagen');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // ============================================================
+  // THE COMPLETE EMERGENT INSTRUCTION
+  // ============================================================
+  const emergentInstruction = `=== CMS-INTEGRATION ANWEISUNG FÜR EMERGENT ===
+
+Diese Website wird mit The Monolith CMS verbunden.
+Das CMS erlaubt Editoren, Texte und Bilder zu ändern,
+ohne das Design oder Layout zu berühren.
+
+REGELN FÜR DIE WEBSITE-ENTWICKLUNG:
+
+1. EDITIERBARE ELEMENTE MARKIEREN
+   Jedes Element dessen Inhalt im CMS editierbar sein
+   soll, bekommt ein data-cms-id Attribut:
+
+   <h1 data-cms-id="hero-headline">Headline Text</h1>
+   <p data-cms-id="hero-description">Beschreibung</p>
+   <img data-cms-id="hero-image" src="bild.jpg" alt="Alt Text" />
+   <a data-cms-id="cta-button" href="/kontakt">Kontakt</a>
+   <span data-cms-id="section-badge">Kategorie</span>
+
+   Die IDs müssen einzigartig pro Seite sein und
+   beschreibend benannt werden (z.B. hero-headline,
+   about-team-image, footer-address).
+
+   KEINE data-cms-id auf Layout-Container/Sections
+   setzen – nur auf Elemente mit editierbarem Inhalt.
+
+2. CMS-SCHEMA DATEI ERSTELLEN
+   Erstelle eine Datei "cms-schema.json" im Projekt-Root.
+   Format:
+
+   {
+     "project_name": "PROJEKTNAME",
+     "source_updated_at": "2026-01-15T10:00:00Z",
+     "pages": [
+       {
+         "name": "Homepage",
+         "slug": "/",
+         "elements": [
+           {
+             "id": "hero-headline",
+             "type": "heading",
+             "tag": "h1",
+             "label": "Hero Headline",
+             "content": { "text": "Der aktuelle Headline-Text" },
+             "style": { "classes": "text-5xl font-bold" },
+             "children": []
+           },
+           {
+             "id": "hero-image",
+             "type": "image",
+             "tag": "img",
+             "label": "Hero Bild",
+             "content": { "src": "/images/hero.jpg", "alt": "Hero" },
+             "style": { "classes": "w-full rounded-lg" },
+             "children": []
+           },
+           {
+             "id": "cta-button",
+             "type": "button",
+             "tag": "a",
+             "label": "CTA Button",
+             "content": { "text": "Kontakt", "href": "/kontakt" },
+             "style": { "classes": "btn-primary" },
+             "children": []
+           }
+         ]
+       }
+     ]
+   }
+
+   WICHTIG: "source_updated_at" muss den aktuellen
+   Zeitstempel enthalten. Das CMS vergleicht diesen
+   mit dem Zeitpunkt der letzten Editor-Änderung.
+   Wenn der Editor im CMS etwas nach dem letzten
+   Website-Build geändert hat, wird die CMS-Version
+   beibehalten. Sonst wird der neue Text übernommen.
+
+   Element-Typen und ihre Content-Felder:
+   - heading:   { text, highlight: { word, color } }
+   - paragraph:  { text }
+   - image:      { src, alt }
+   - button:     { text, href }
+   - badge:      { text }
+   - card:       { title, text }
+   - quote:      { title, text }
+   - section:    (Container, keine eigenen Content-Felder,
+                  hat "children" Array mit Kind-Elementen)
+
+3. CLIENT-SCRIPT EINBINDEN
+   Vor dem schließenden </body> Tag einfügen:
+
+   Für HTML/statische Websites:
+   <script
+     src="${cmsUrl}/api/client.js"
+     data-project="PROJEKTNAME"
+     data-cms-url="${cmsUrl}">
+   </script>
+
+   Für React/Emergent Websites stattdessen den
+   useMonolithCMS Hook verwenden:
+
+   import { useMonolithCMS } from './hooks/useMonolithCMS';
+
+   function MeinePage() {
+     const { getContent, loading } = useMonolithCMS(
+       'PROJEKTNAME', '/', '${cmsUrl}'
+     );
+     if (loading) return <div>Laden...</div>;
+     return (
+       <h1>{getContent('hero-headline', 'text', 'Fallback')}</h1>
+     );
+   }
+
+4. BEI JEDER ÄNDERUNG MIT EMERGENT
+   Wenn die Website mit Emergent geändert wird:
+   - cms-schema.json aktualisieren (neue/geänderte Elemente)
+   - source_updated_at auf den aktuellen Zeitstempel setzen
+   - Die Schema-Datei wird dann erneut ins CMS importiert
+   - Das CMS merged automatisch: Editor-Änderungen bleiben
+     erhalten, neue Emergent-Änderungen werden übernommen
+
+=== ENDE CMS-INTEGRATION ANWEISUNG ===`;
 
   const schemaExample = `{
   "project_name": "Meine Website",
+  "source_updated_at": "${new Date().toISOString()}",
   "pages": [
     {
       "name": "Homepage",
@@ -37,105 +194,26 @@ const IntegrationDocs = ({ cmsUrl, onClose }) => {
           "type": "heading",
           "tag": "h1",
           "label": "Hero Headline",
-          "content": { "text": "Willkommen auf unserer Website" },
+          "content": { "text": "Willkommen" },
           "style": { "classes": "text-5xl font-bold" },
-          "children": []
-        },
-        {
-          "id": "hero-description",
-          "type": "paragraph",
-          "tag": "p",
-          "label": "Hero Description",
-          "content": { "text": "Wir bauen digitale Produkte." },
-          "style": { "classes": "text-lg text-gray-500" },
           "children": []
         },
         {
           "id": "hero-image",
           "type": "image",
           "tag": "img",
-          "label": "Hero Image",
-          "content": { "src": "/images/hero.jpg", "alt": "Hero" },
-          "style": { "classes": "w-full rounded-lg" },
+          "label": "Hero Bild",
+          "content": {
+            "src": "https://example.com/hero.jpg",
+            "alt": "Hero Bild"
+          },
+          "style": {},
           "children": []
         }
       ]
     }
   ]
 }`;
-
-  const htmlSnippet = `<!-- Monolith CMS Client Library -->
-<script
-  src="${cmsUrl}/api/client.js"
-  data-project="meine-website"
-  data-cms-url="${cmsUrl}">
-</script>`;
-
-  const htmlExample = `<!-- Deine Website HTML -->
-<section>
-  <h1 data-cms-id="hero-headline">
-    Willkommen auf unserer Website
-  </h1>
-  <p data-cms-id="hero-description">
-    Wir bauen digitale Produkte.
-  </p>
-  <img data-cms-id="hero-image"
-       src="/images/hero.jpg"
-       alt="Hero" />
-</section>
-
-${htmlSnippet}`;
-
-  const reactHookExample = `import { useMonolithCMS } from './hooks/useMonolithCMS';
-
-function HomePage() {
-  const { getContent, loading } = useMonolithCMS(
-    'meine-website',  // project ID
-    '/',               // page slug
-    '${cmsUrl}'        // CMS URL
-  );
-
-  if (loading) return <div>Loading...</div>;
-
-  return (
-    <section>
-      <h1>{getContent('hero-headline', 'text', 'Default Headline')}</h1>
-      <p>{getContent('hero-description', 'text', 'Default text')}</p>
-      <img
-        src={getContent('hero-image', 'src', '/default.jpg')}
-        alt={getContent('hero-image', 'alt', 'Default')}
-      />
-    </section>
-  );
-}`;
-
-  const curlImport = `curl -X POST ${cmsUrl}/api/projects/import \\
-  -H "Authorization: Bearer YOUR_TOKEN" \\
-  -H "Content-Type: application/json" \\
-  -d @cms-schema.json`;
-
-  const emergentPrompt = `Wichtig fuer die CMS-Integration:
-
-1. Jedes editierbare Element braucht ein data-cms-id Attribut:
-   <h1 data-cms-id="hero-headline">Text</h1>
-   <img data-cms-id="hero-image" src="..." alt="..." />
-   <p data-cms-id="about-text">Text</p>
-
-2. Erstelle eine cms-schema.json Datei im Root
-   des Projekts (Format siehe Dokumentation).
-
-3. Fuege dieses Script vor </body> ein:
-   <script src="${cmsUrl}/api/client.js"
-           data-project="PROJEKT-NAME"
-           data-cms-url="${cmsUrl}"></script>
-
-4. Fuer React: Verwende den useMonolithCMS Hook
-   statt des Script-Tags.
-
-Die IDs muessen einzigartig pro Seite sein und
-beschreibend (z.B. hero-headline, about-image,
-footer-address). Sections brauchen keine data-cms-id,
-nur Elemente deren Content editierbar sein soll.`;
 
   return (
     <div className="p-6 md:p-10 max-w-[1000px] mx-auto" data-testid="integration-docs">
@@ -148,28 +226,154 @@ nur Elemente deren Content editierbar sein soll.`;
           </h1>
         </div>
         <p className="text-sm" style={{ color: 'var(--muted)' }}>
-          So verbindest du jede Website mit The Monolith CMS
+          Verbinde jede Website mit The Monolith CMS
         </p>
       </div>
 
-      {/* Step 1: Emergent Prompt */}
-      <Section number="0" title="Emergent Anweisung" subtitle="Kopiere diesen Text und gib ihn Emergent bei jeder neuen Website">
+      {/* ============================================================ */}
+      {/* SECTION: Emergent Anweisung */}
+      {/* ============================================================ */}
+      <Section number="1" title="Emergent Anweisung" subtitle="Kopiere diesen kompletten Text und gib ihn Emergent bei jeder neuen Website">
+        <p className="text-sm mb-4" style={{ color: 'var(--muted)' }}>
+          Diese Anweisung enthält alles was Emergent braucht – Element-Markierung, Schema-Format, Client-Script, und Update-Regeln. Einfach kopieren und als Kontext mitgeben.
+        </p>
         <CodeBlock
-          code={emergentPrompt}
+          code={emergentInstruction}
           language="text"
-          blockId="emergent-prompt"
+          blockId="emergent-complete"
           copyToClipboard={copyToClipboard}
           copiedBlock={copiedBlock}
         />
       </Section>
 
-      {/* Step 1: Schema */}
-      <Section number="1" title="Schema erstellen" subtitle="Die Website generiert eine cms-schema.json Datei">
-        <p className="text-sm mb-4" style={{ color: 'var(--muted)' }}>
-          Jede editierbare Seite und jedes editierbare Element wird als JSON-Schema beschrieben.
-          Elemente haben eine <InlineCode>id</InlineCode>, <InlineCode>type</InlineCode>, <InlineCode>label</InlineCode> (Name im CMS),
-          <InlineCode>content</InlineCode> (editierbare Inhalte) und <InlineCode>style</InlineCode> (nicht editierbar, nur fuer Darstellung).
-        </p>
+      {/* ============================================================ */}
+      {/* SECTION: Schema Import */}
+      {/* ============================================================ */}
+      <Section number="2" title="Website importieren" subtitle="Lade die cms-schema.json hier hoch oder füge das JSON ein">
+        <div
+          className="rounded-[4px] p-6"
+          style={{ backgroundColor: 'var(--elevated)' }}
+          data-testid="schema-import-panel"
+        >
+          {/* File upload */}
+          <div className="flex items-center gap-3 mb-4">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json"
+              onChange={handleFileUpload}
+              className="hidden"
+              data-testid="schema-file-input"
+            />
+            <button
+              data-testid="schema-upload-button"
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-2 px-4 py-2 rounded-[4px] text-xs font-semibold transition-colors duration-150"
+              style={{
+                backgroundColor: 'rgba(255,255,255,0.06)',
+                color: 'var(--on-surface)',
+              }}
+            >
+              <FileJson size={14} />
+              cms-schema.json hochladen
+            </button>
+            <span className="text-xs" style={{ color: 'var(--muted-2)' }}>oder JSON unten einfügen</span>
+          </div>
+
+          {/* JSON textarea */}
+          <textarea
+            data-testid="schema-json-textarea"
+            value={importJson}
+            onChange={(e) => { setImportJson(e.target.value); setImportError(''); setImportResult(null); }}
+            placeholder={`{\n  "project_name": "Meine Website",\n  "source_updated_at": "${new Date().toISOString()}",\n  "pages": [ ... ]\n}`}
+            rows={10}
+            className="w-full rounded-[4px] px-4 py-3 text-xs font-mono resize-none custom-scrollbar mb-4"
+            style={{
+              backgroundColor: 'var(--sunken)',
+              color: 'var(--on-surface)',
+              border: 'none',
+              outline: 'none',
+              lineHeight: '1.7',
+            }}
+          />
+
+          {/* Error */}
+          <AnimatePresence>
+            {importError && (
+              <motion.div
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="flex items-center gap-2 mb-4 px-3 py-2 rounded-[4px] text-xs"
+                style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)' }}
+              >
+                <AlertCircle size={14} />
+                {importError}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Success */}
+          <AnimatePresence>
+            {importResult && (
+              <motion.div
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className="mb-4 px-4 py-3 rounded-[4px]"
+                style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)' }}
+                data-testid="schema-import-success"
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <CheckCircle2 size={16} style={{ color: 'var(--primary-2)' }} />
+                  <span className="text-sm font-semibold" style={{ color: 'var(--primary-2)' }}>
+                    Import erfolgreich
+                  </span>
+                </div>
+                <p className="text-xs" style={{ color: 'var(--muted)' }}>
+                  Projekt: <strong>{importResult.project_name}</strong> ({importResult.project_id})
+                </p>
+                <div className="mt-2 space-y-1">
+                  {importResult.details?.map((d, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      <span
+                        className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-[2px]"
+                        style={{
+                          backgroundColor: d.action === 'created' ? 'rgba(16, 185, 129, 0.14)' : 'rgba(56, 189, 248, 0.14)',
+                          color: d.action === 'created' ? 'var(--primary-2)' : 'var(--info)',
+                        }}
+                      >
+                        {d.action}
+                      </span>
+                      <span style={{ color: 'var(--on-surface)' }}>{d.name}</span>
+                      <span style={{ color: 'var(--muted-2)' }}>{d.slug}</span>
+                    </div>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Import button */}
+          <button
+            data-testid="schema-import-button"
+            onClick={handleImport}
+            disabled={!importJson.trim() || importing}
+            className="gradient-btn flex items-center gap-2 px-5 py-2 rounded-[4px] font-headline font-bold text-xs tracking-wider uppercase disabled:opacity-40"
+          >
+            {importing ? (
+              <><Loader2 size={14} className="animate-spin" /> Importiere...</>
+            ) : (
+              <><Upload size={14} /> Schema importieren</>
+            )}
+          </button>
+        </div>
+      </Section>
+
+      {/* ============================================================ */}
+      {/* SECTION: Schema Beispiel */}
+      {/* ============================================================ */}
+      <Section number="3" title="Schema Beispiel" subtitle="Vorlage für die cms-schema.json">
         <CodeBlock
           code={schemaExample}
           language="json"
@@ -179,87 +383,74 @@ nur Elemente deren Content editierbar sein soll.`;
         />
       </Section>
 
-      {/* Step 2: Import */}
-      <Section number="2" title="Schema importieren" subtitle="Upload ins CMS per API-Call">
-        <p className="text-sm mb-4" style={{ color: 'var(--muted)' }}>
-          Der Admin importiert das Schema ins CMS. Dies erstellt automatisch das Projekt mit allen Seiten und Elementen.
-        </p>
-        <CodeBlock
-          code={curlImport}
-          language="bash"
-          blockId="curl-import"
-          copyToClipboard={copyToClipboard}
-          copiedBlock={copiedBlock}
-        />
-        <p className="text-xs mt-2" style={{ color: 'var(--muted-2)' }}>
-          Bei erneutem Import werden bestehende CMS-Inhalte beibehalten (Smart Merge). Neue Elemente werden hinzugefuegt, bestehende Content-Aenderungen bleiben erhalten.
-        </p>
-      </Section>
-
-      {/* Step 3a: HTML Snippet */}
-      <Section number="3a" title="HTML Integration" subtitle="Fuer statische Websites oder Non-React">
-        <p className="text-sm mb-4" style={{ color: 'var(--muted)' }}>
-          Fuege jedem editierbaren HTML-Element ein <InlineCode>data-cms-id</InlineCode> Attribut hinzu.
-          Das Client-Script ueberschreibt automatisch den Inhalt mit CMS-Daten.
-        </p>
-        <CodeBlock
-          code={htmlExample}
-          language="html"
-          blockId="html-example"
-          copyToClipboard={copyToClipboard}
-          copiedBlock={copiedBlock}
-        />
-      </Section>
-
-      {/* Step 3b: React Hook */}
-      <Section number="3b" title="React Integration" subtitle="Fuer React / Emergent Websites">
-        <p className="text-sm mb-4" style={{ color: 'var(--muted)' }}>
-          Verwende den <InlineCode>useMonolithCMS</InlineCode> Hook um CMS-Inhalte als React State zu laden.
-          Fallback-Werte werden angezeigt bis der CMS-Content geladen ist.
-        </p>
-        <CodeBlock
-          code={reactHookExample}
-          language="jsx"
-          blockId="react-example"
-          copyToClipboard={copyToClipboard}
-          copiedBlock={copiedBlock}
-        />
-      </Section>
-
-      {/* Element Types */}
-      <Section number="4" title="Element-Typen" subtitle="Unterstuetzte Typen und ihre Content-Felder">
+      {/* ============================================================ */}
+      {/* SECTION: Element-Typen Referenz */}
+      {/* ============================================================ */}
+      <Section number="4" title="Element-Typen" subtitle="Unterstützte Typen und ihre Content-Felder">
         <div className="space-y-2">
-          <TypeRow type="heading" fields="text, highlight.word, highlight.color" example='data-cms-id="hero-headline"' />
-          <TypeRow type="paragraph" fields="text" example='data-cms-id="about-text"' />
-          <TypeRow type="image" fields="src, alt" example='data-cms-id="hero-image"' />
-          <TypeRow type="button" fields="text, href" example='data-cms-id="cta-button"' />
-          <TypeRow type="badge" fields="text" example='data-cms-id="section-badge"' />
-          <TypeRow type="card" fields="title, text" example='data-cms-id="feature-card-1"' />
-          <TypeRow type="quote" fields="title, text" example='data-cms-id="testimonial-1"' />
-          <TypeRow type="section" fields="(Container - keine eigenen Content-Felder)" example='Kein data-cms-id noetig' />
+          <TypeRow type="heading" fields="text, highlight.word, highlight.color" tag="h1-h6" />
+          <TypeRow type="paragraph" fields="text" tag="p" />
+          <TypeRow type="image" fields="src, alt" tag="img" />
+          <TypeRow type="button" fields="text, href" tag="a, button" />
+          <TypeRow type="badge" fields="text" tag="span" />
+          <TypeRow type="card" fields="title, text" tag="div" />
+          <TypeRow type="quote" fields="title, text" tag="blockquote" />
+          <TypeRow type="section" fields="(Container mit children)" tag="section, div" />
         </div>
       </Section>
 
-      {/* API Reference */}
-      <Section number="5" title="API Referenz" subtitle="Public Endpoints fuer Websites">
+      {/* ============================================================ */}
+      {/* SECTION: Timestamp-Merge Erklärung */}
+      {/* ============================================================ */}
+      <Section number="5" title="Smart Merge" subtitle="Wie das CMS entscheidet welcher Content gilt">
+        <div className="space-y-3">
+          <MergeRow
+            scenario="Editor ändert Text im CMS, dann wird Website mit Emergent neu gebaut"
+            result="CMS-Text bleibt (Editor-Änderung ist neuer)"
+            color="var(--primary-2)"
+          />
+          <MergeRow
+            scenario="Website wird mit Emergent geändert, Editor hat nichts im CMS geändert"
+            result="Neuer Emergent-Text wird übernommen"
+            color="var(--info)"
+          />
+          <MergeRow
+            scenario="Neues Element wird mit Emergent hinzugefügt"
+            result="Element erscheint automatisch im CMS-Editor"
+            color="var(--primary-2)"
+          />
+          <MergeRow
+            scenario="Element wird mit Emergent entfernt"
+            result="Element verschwindet aus dem CMS-Editor"
+            color="var(--warning)"
+          />
+        </div>
+      </Section>
+
+      {/* ============================================================ */}
+      {/* SECTION: API Referenz */}
+      {/* ============================================================ */}
+      <Section number="6" title="API Referenz" subtitle="Endpoints für Integration">
         <div className="space-y-2">
-          <ApiRow method="GET" path={`/api/public/{project_id}/content`} desc="Alle publizierten Inhalte als Flat-Map" />
-          <ApiRow method="GET" path={`/api/public/{project_id}/pages`} desc="Liste publizierter Seiten" />
-          <ApiRow method="GET" path={`/api/public/{project_id}/pages/{slug}`} desc="Einzelne Seite mit Element-Tree" />
+          <ApiRow method="POST" path="/api/projects/import" desc="Schema importieren (Admin)" />
+          <ApiRow method="GET" path="/api/public/{project}/content" desc="Publizierte Inhalte (öffentlich)" />
+          <ApiRow method="GET" path="/api/public/{project}/pages" desc="Publizierte Seiten (öffentlich)" />
           <ApiRow method="GET" path="/api/client.js" desc="JavaScript Client Library" />
-          <ApiRow method="POST" path="/api/projects/import" desc="Schema importieren (Auth required)" />
         </div>
       </Section>
     </div>
   );
 };
 
-// Sub-components
+// ============================================================
+// SUB-COMPONENTS
+// ============================================================
+
 const Section = ({ number, title, subtitle, children }) => (
   <motion.div
     initial={{ opacity: 0, y: 12 }}
     animate={{ opacity: 1, y: 0 }}
-    transition={{ duration: 0.3, delay: Number(number.replace(/[^0-9]/g, '')) * 0.05 }}
+    transition={{ duration: 0.3, delay: Number(String(number).replace(/[^0-9]/g, '')) * 0.04 }}
     className="mb-10"
   >
     <div className="flex items-start gap-3 mb-4">
@@ -284,38 +475,42 @@ const CodeBlock = ({ code, language, blockId, copyToClipboard, copiedBlock }) =>
       <span className="text-[10px] font-mono font-medium" style={{ color: 'var(--muted-2)' }}>{language}</span>
       <button
         onClick={() => copyToClipboard(code, blockId)}
+        data-testid={`copy-${blockId}`}
         className="flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-[3px] transition-colors duration-150"
         style={{
           backgroundColor: copiedBlock === blockId ? 'rgba(16, 185, 129, 0.14)' : 'rgba(255,255,255,0.04)',
           color: copiedBlock === blockId ? 'var(--primary-2)' : 'var(--muted)',
         }}
       >
-        {copiedBlock === blockId ? <><Check size={10} /> Copied</> : <><Copy size={10} /> Copy</>}
+        {copiedBlock === blockId ? <><Check size={10} /> Kopiert</> : <><Copy size={10} /> Kopieren</>}
       </button>
     </div>
-    <pre className="p-4 overflow-x-auto text-xs leading-relaxed custom-scrollbar" style={{ color: 'var(--on-surface)' }}>
+    <pre className="p-4 overflow-x-auto text-xs leading-relaxed custom-scrollbar" style={{ color: 'var(--on-surface)', maxHeight: '500px' }}>
       <code>{code}</code>
     </pre>
   </div>
 );
 
-const InlineCode = ({ children }) => (
-  <code
-    className="text-xs px-1 py-0.5 rounded-[2px] font-mono"
-    style={{ backgroundColor: 'rgba(78, 222, 163, 0.08)', color: 'var(--primary-2)' }}
-  >
-    {children}
-  </code>
-);
-
-const TypeRow = ({ type, fields, example }) => (
+const TypeRow = ({ type, fields, tag }) => (
   <div
     className="flex items-center gap-4 p-3 rounded-[4px]"
     style={{ backgroundColor: 'rgba(255,255,255,0.02)' }}
   >
-    <span className="font-mono text-xs font-semibold w-20" style={{ color: 'var(--primary-2)' }}>{type}</span>
+    <span className="font-mono text-xs font-semibold w-24" style={{ color: 'var(--primary-2)' }}>{type}</span>
     <span className="text-xs flex-1" style={{ color: 'var(--muted)' }}>{fields}</span>
-    <span className="text-[10px] font-mono" style={{ color: 'var(--muted-2)' }}>{example}</span>
+    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-[2px]" style={{ backgroundColor: 'rgba(255,255,255,0.04)', color: 'var(--muted-2)' }}>
+      {'<'}{tag}{'>'}
+    </span>
+  </div>
+);
+
+const MergeRow = ({ scenario, result, color }) => (
+  <div
+    className="p-3 rounded-[4px]"
+    style={{ backgroundColor: 'rgba(255,255,255,0.02)' }}
+  >
+    <p className="text-xs mb-1" style={{ color: 'var(--muted)' }}>{scenario}</p>
+    <p className="text-xs font-semibold" style={{ color }}>{result}</p>
   </div>
 );
 
@@ -325,7 +520,7 @@ const ApiRow = ({ method, path, desc }) => (
     style={{ backgroundColor: 'rgba(255,255,255,0.02)' }}
   >
     <span
-      className="text-[10px] font-bold px-2 py-0.5 rounded-[3px] w-12 text-center"
+      className="text-[10px] font-bold px-2 py-0.5 rounded-[3px] w-14 text-center"
       style={{
         backgroundColor: method === 'GET' ? 'rgba(56, 189, 248, 0.14)' : 'rgba(16, 185, 129, 0.14)',
         color: method === 'GET' ? 'var(--info)' : 'var(--primary-2)',
