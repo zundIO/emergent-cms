@@ -1,34 +1,118 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+/* The Monolith CMS - App Styles */
+
+/* Editor workspace layout */
+.editor-workspace {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background-color: var(--bg);
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+.editor-main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
 }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+/* Left sidebar */
+.left-sidebar {
+  width: 56px;
+  background-color: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0;
+  z-index: 20;
+  flex-shrink: 0;
 }
 
-.App-link {
-    color: #61dafb;
+/* Canvas area */
+.canvas-area {
+  flex: 1;
+  background-color: var(--sunken);
+  overflow-y: auto;
+  overflow-x: hidden;
+  position: relative;
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+/* Right panel */
+.right-panel {
+  width: 380px;
+  background-color: var(--elevated);
+  overflow-y: auto;
+  flex-shrink: 0;
+  box-shadow: var(--shadow-ambient);
+}
+
+@media (min-width: 1280px) {
+  .right-panel {
+    width: 420px;
+  }
+}
+
+/* Top bar */
+.top-bar {
+  height: 56px;
+  background-color: var(--bg);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  z-index: 30;
+  flex-shrink: 0;
+}
+
+/* Element label floating */
+.element-label {
+  position: absolute;
+  top: -28px;
+  left: 0;
+  background: #10b981;
+  color: #0b0c0c;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px 4px 0 0;
+  white-space: nowrap;
+  font-family: 'Inter', sans-serif;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  z-index: 10;
+}
+
+/* Device preview frames */
+.canvas-frame {
+  transition: max-width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.canvas-frame.desktop {
+  max-width: 1100px;
+}
+
+.canvas-frame.tablet {
+  max-width: 768px;
+}
+
+.canvas-frame.mobile {
+  max-width: 375px;
+}
+
+/* Login page */
+.login-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg);
+  position: relative;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 420px;
+  padding: 48px;
+  background-color: var(--elevated);
+  border-radius: 8px;
+  box-shadow: var(--shadow-ambient);
 }
