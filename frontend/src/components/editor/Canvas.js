@@ -420,10 +420,18 @@ const Canvas = ({ page, selectedElement, onSelectElement, deviceMode }) => {
 
   if (!page) return null;
 
+  const handleCanvasBgClick = (e) => {
+    // Only deselect if clicked on the canvas background itself, not on an element
+    if (e.target === e.currentTarget) {
+      onSelectElement(null);
+    }
+  };
+
   return (
     <div
       style={{ padding: '24px 40px' }}
       data-testid="editor-canvas"
+      onClick={handleCanvasBgClick}
     >
       <div
         className="canvas-frame mx-auto"
@@ -434,8 +442,9 @@ const Canvas = ({ page, selectedElement, onSelectElement, deviceMode }) => {
           minHeight: '80vh',
           transition: 'max-width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)',
         }}
+        onClick={handleCanvasBgClick}
       >
-        <div className="canvas-preview">
+        <div className="canvas-preview" onClick={handleCanvasBgClick}>
           {page.elements?.map((element) => renderElement(element))}
         </div>
       </div>

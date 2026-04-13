@@ -17,10 +17,10 @@
   },
   {
     "content": "Phase 1+2: End to End Testing using Testing Agent",
-    "status": "in_progress"
+    "status": "completed"
   },
   {
-    "content": "Phase 1+2: Fix all bugs from testing",
-    "status": "pending"
+    "content": "Phase 1+2: Fix all bugs from testing (deselection bug fixed)",
+    "status": "completed"
   }
 ]

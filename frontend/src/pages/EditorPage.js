@@ -169,7 +169,7 @@ export default function EditorPage() {
           onSidebarClick={handleSidebarClick}
         />
 
-        <div className="canvas-area custom-scrollbar" onClick={handleCanvasBackgroundClick}>
+        <div className="canvas-area custom-scrollbar" onClick={() => setSelectedElement(null)}>
           {showPagesList ? (
             <PagesList
               pages={pages}

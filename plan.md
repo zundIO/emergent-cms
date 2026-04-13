@@ -1,117 +1,133 @@
 # plan.md — The Monolith CMS (MVP: Pages + Content Editor + Users)
 
 ## 1) Objectives
-- Deliver a dark, emerald-accented CMS UI matching **“The Emerald Monolith”** spec.
-- Provide a **visual page editor** where users can **select elements in the canvas** and **edit content only** (text/images/links), with **live preview updates**.
-- Implement **Pages CRUD + Draft/Publish** and **JWT auth with roles (Admin/Editor)**.
-- Establish a clean **integration contract**: websites fetch published content via API (collections later).
+- ✅ Deliver a dark, emerald-accented CMS UI matching **“The Emerald Monolith”** spec.
+- ✅ Provide a **visual page editor** where users can **select elements in the canvas** and **edit content only** (text/images/links), with **live preview updates**.
+- ✅ Implement **Pages** (list + open) and **Draft/Publish workflow**.
+- ✅ Implement **JWT auth** with roles (**Admin / Editor**) and gated endpoints.
+- ✅ Establish a working **integration contract** for websites to fetch **published** page content via a public API (Collections later).
+
+**Current status:** Phase 1+2 completed and end-to-end verified. Backend tests 100%; frontend 95%+ and the only reported issue (deselection) is fixed.
 
 ---
 
 ## 2) Implementation Steps
 
 ### Phase 1 — Core Flow POC (Editor Selection → Right Panel Edit → Persist)
-**Goal:** Prove the hardest workflow works end-to-end before building the full app shell.
+**Status:** ✅ Completed (implemented directly as part of the full app build).
 
-**User stories (Phase 1)**
-1. As a user, I can open a single demo page and see it rendered in the center canvas.
-2. As a user, I can click an element in the canvas and see it highlighted with an emerald outline + label.
-3. As a user, I can edit the selected element’s content in the right panel.
-4. As a user, I see the canvas update immediately as I type.
-5. As a user, I can save changes and reload to confirm persistence.
+**Delivered (Phase 1 acceptance):**
+1. ✅ Open demo page rendered in center canvas.
+2. ✅ Click element → emerald highlight + label.
+3. ✅ Edit selected element content in right panel.
+4. ✅ Canvas updates in real-time.
+5. ✅ Save persists changes; refresh confirms persistence.
 
-**Steps**
-- Define minimal JSON page schema (elements tree with `content` editable; `style/type` read-only).
-- Backend POC endpoints (no auth):
-  - `GET /api/pages/:id` (returns page JSON)
-  - `PUT /api/pages/:id` (updates element content by id; validates “content-only”)
-- Frontend POC route:
-  - Render demo page from JSON.
-  - Implement element selection overlay (emerald border + floating label).
-  - Right panel shows contextual fields for selected element type (H1/paragraph/button/image).
-  - Save button triggers PUT; reload fetch verifies persistence.
-- Quick websearch (best practices): content-only patching + element id mapping + immutable updates (React).
-- Fix until: selection is reliable, edits never mutate style/layout, persistence consistent.
-
-**Exit criteria**
-- Click-to-select never selects wrong element; edited content survives refresh.
+**Notes / Decisions captured:**
+- Instead of relying on dynamic Tailwind classes from JSON (which are not safelisted at build time), the canvas preview was implemented with **inline style mappings** for reliable rendering.
+- Element deselection implemented by detecting background clicks and setting selection to `null`.
 
 ---
 
 ### Phase 2 — V1 App Development (UI Shell + Pages + Auth)
-**User stories (Phase 2)**
-1. As an Admin, I can log in and reach the editor workspace.
-2. As a user, I can see the left sidebar + top bar exactly like the provided screen.
-3. As a user, I can navigate between pages (Homepage + at least 1 additional page).
-4. As a user, I can switch Draft/Published and see status reflected in UI.
-5. As a user, I can preview device sizes (desktop/tablet/mobile) in the canvas.
-6. As an Editor, I can edit content but cannot access admin-only actions.
+**Status:** ✅ Completed.
 
-**Backend (FastAPI + MongoDB)**
-- Data models:
-  - `User {email, password_hash, role}`
-  - `Project {name, domains[] (optional for later)}` (minimal)
-  - `Page {project_id, name, slug, status(draft/published), elements[], updated_at}`
+**User stories (Phase 2) — Delivered**
+1. ✅ Admin can log in and reach the editor workspace.
+2. ✅ Workspace matches provided screen: top bar, left icon rail, center canvas, right properties panel.
+3. ✅ Users can navigate between pages (Homepage + About).
+4. ✅ Draft/Published state shown via status badge.
+5. ✅ Device preview switching (desktop/tablet/mobile) resizes the canvas frame.
+6. ✅ Editor role can log in and edit content.
+
+**Backend (FastAPI + MongoDB) — Delivered**
+- Data models implemented:
+  - ✅ `User {email, password_hash, role, name}`
+  - ✅ `Project {project_id, name, slug}` (minimal; default project seeded)
+  - ✅ `Page {project_id, name, slug, status, elements[], published_elements?, updated_at, published_at}`
 - Auth:
-  - JWT login/register, role-based guards.
+  - ✅ JWT login
+  - ✅ `/api/auth/me`
+  - ✅ Admin-only `/api/auth/register`
 - Pages:
-  - List pages, get page, update content-only (server-side enforcement).
-  - Publish endpoint: copies draft → published snapshot (or status flip + versioned field).
-- “Website consumption” API:
-  - `GET /api/public/projects/:projectId/pages/:slug` returns **published** content JSON.
+  - ✅ List pages
+  - ✅ Get page
+  - ✅ Content-only updates (single + bulk) with server-side enforcement (`content` only)
+  - ✅ Publish endpoint (stores `published_elements` snapshot + `published_at`)
+- Public “website consumption” API:
+  - ✅ `GET /api/public/pages` returns published pages only
+  - ✅ `GET /api/public/pages/{slug}` returns published page by slug
 
-**Frontend (React)**
-- App shell matching design:
-  - Top bar: logo, page name + status badge, device icons, tabs (Structure active; SEO/History placeholders), Preview + Publish.
-  - Left sidebar icon-only + “+” button (disabled/placeholder; since layout edits not allowed).
-  - Right panel: Element selector header + collapsible sections; content editors only.
-- Pages experience:
-  - Pages list view (in main area or modal) → open page in editor.
-  - Editor route: fetch page, render canvas, selection/edit/persist.
-- Styling:
-  - Implement tokens (surfaces, emerald gradient buttons, no hard borders, 0.25rem radii, Inter/Space Grotesk).
+**Frontend (React) — Delivered**
+- ✅ Login page (dark theme + emerald CTA)
+- ✅ Editor shell:
+  - ✅ Top bar: page name, status badge, device icons, tabs (Structure/SEO/History), Preview + Publish, avatar/logout
+  - ✅ Left sidebar: + button + icons (Pages enabled; other items placeholder/disabled; Support icon)
+  - ✅ Center canvas: rendered preview; selectable elements; deselect on background click
+  - ✅ Right property panel: Element selector header + collapsible sections (Typography read-only, Content, Image, Link, Highlight)
+- ✅ Editing experience:
+  - ✅ Real-time updates
+  - ✅ Dirty state indicator + Save button
+  - ✅ Save (bulk) persists to backend
+  - ✅ Publish updates status
 
-**Phase 2 testing (1 E2E pass)**
-- Run through: login → open page → edit H1 + button text → save → publish → fetch public endpoint and verify published content.
+**Phase 2 testing — Completed**
+- ✅ E2E run-through: login → open page → edit content → save → publish → verify public API
+- ✅ Backend endpoints validated (100% pass)
+- ✅ Frontend flows validated; deselection bug fixed and manually re-verified.
 
 ---
 
 ### Phase 3 — Hardening + UX Polish (Still MVP)
-**User stories (Phase 3)**
-1. As a user, I can undo/redo my last edits (session-level).
-2. As a user, I can see a clear “unsaved changes” indicator.
-3. As a user, I can’t accidentally edit when clicking empty canvas space.
-4. As a user, validation errors are clear (e.g., empty required text).
-5. As an Admin, I can manage users (create editor, disable user).
+**Status:** ⏭️ Optional / Next (not started)
 
-**Steps**
-- Add content patch validation (type-safe per element type).
-- Add debounced autosave (optional) or explicit save + dirty state.
-- Add history snapshots for page edits (minimal: store last N versions).
-- Add user management endpoints + minimal UI.
-- Improve accessibility/keyboard navigation for selection + right panel inputs.
+**Proposed user stories (Phase 3)**
+1. Undo/redo (session-level or persisted).
+2. Stronger “unsaved changes” UX (e.g., autosave toggle, last saved timestamp).
+3. More robust selection UX:
+   - element breadcrumb/path
+   - keyboard navigation
+   - lock selection while typing
+4. Validation rules per element type (e.g., required fields, URL format).
+5. Admin user management UI (create/disable users) beyond API-only.
+6. Optional: history snapshots UI (History tab) to restore prior versions.
 
-**Phase 3 testing (1 E2E pass)**
-- Multi-user: Admin creates Editor → Editor edits draft → Admin publishes.
+**Implementation steps (Phase 3)**
+- Add client-side edit history stack (undo/redo) and optionally persist snapshots server-side.
+- Add structured validation layer for `content` updates (type-safe schemas per element type).
+- Expand History tab from placeholder to functional version list.
+- Improve disabled sidebar items with clearer “Coming soon” treatment.
+- Accessibility: focus management in property panel; consistent keyboard shortcuts.
+
+**Phase 3 testing**
+- E2E: Admin creates Editor → Editor edits draft → Admin publishes.
+- Regression: selection/deselection, save/publish, device switching.
 
 ---
 
 ### Phase 4 — Next Feature Track (Later, per your upcoming screens)
+**Status:** ⏭️ Blocked on screens/spec.
+
 **Collections (Webflow-like), Assets, Settings, Publishing workflows**
-- Implement after you provide Collections screens + required field types and list/detail UX.
+- Implement once you provide the Collections screens and requirements:
+  - Collection schema definition
+  - entry editor
+  - list/detail views
+  - relationships/references
+  - public collection API
 
 ---
 
 ## 3) Next Actions
-- Confirm element types for MVP: **heading, paragraph, button, image, label/badge** (based on screen).
-- Implement Phase 1 POC (single demo page) and validate selection/edit/save.
-- Once Phase 1 exits cleanly, build Phase 2 full shell + auth + pages list + publish.
+- Decide whether to proceed with Phase 3 hardening items now (undo/redo + history + validation recommended).
+- Provide next screens/spec for **Collections** when ready (Phase 4).
+- Define integration details for real Emergent projects (project registration, mapping of pages/collections, environment-specific base URLs).
 
 ---
 
 ## 4) Success Criteria
-- Users can visually select elements in the canvas and edit **content only** with immediate feedback.
-- Backend enforces “no layout/style edits” (content-only patches).
-- Draft/Publish flow works; public endpoint serves published content reliably.
-- UI matches the provided screenshot + DESIGN.md (dark surfaces, emerald accents, typography).
-- End-to-end tests pass for: login → edit → save → publish → consume published content.
+- ✅ Users can visually select elements in the canvas and edit **content only** with immediate feedback.
+- ✅ Backend enforces “no layout/style edits” (content-only patches).
+- ✅ Draft/Publish flow works; public endpoint serves published content reliably.
+- ✅ UI matches the provided screenshot + DESIGN.md (dark surfaces, emerald accents, typography).
+- ✅ End-to-end tests pass for: login → edit → save → publish → consume published content.
