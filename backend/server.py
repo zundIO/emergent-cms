@@ -7,13 +7,15 @@ import json
 import hashlib
 import secrets
 import copy
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Depends, Header, Body, Query
+from fastapi import FastAPI, HTTPException, Depends, Header, Body, Query, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, EmailStr
+from fastapi.responses import Response
+from pydantic import BaseModel, Field
 from pymongo import MongoClient, DESCENDING
 from bson import ObjectId
 import jwt
@@ -28,11 +30,9 @@ JWT_SECRET = os.environ.get("JWT_SECRET", "monolith-cms-secret-key-change-in-pro
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRY_HOURS = 24
 
-# MongoDB setup
 client = MongoClient(MONGO_URL)
 db = client[DB_NAME]
 
-# Collections
 users_col = db["users"]
 pages_col = db["pages"]
 projects_col = db["projects"]
@@ -44,7 +44,6 @@ page_versions_col = db["page_versions"]
 # ============================================================
 
 def serialize_doc(doc):
-    """Convert MongoDB document to JSON-safe dict"""
     if doc is None:
         return None
     result = {}
@@ -82,8 +81,7 @@ def create_token(user_id: str, email: str, role: str) -> str:
 
 def decode_token(token: str) -> dict:
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-        return payload
+        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.InvalidTokenError:
@@ -107,20 +105,7 @@ async def require_admin(current_user: dict = Depends(get_current_user)):
     return current_user
 
 
-async def get_optional_user(authorization: Optional[str] = Header(None)):
-    if not authorization or not authorization.startswith("Bearer "):
-        return None
-    try:
-        token = authorization.split(" ")[1]
-        payload = decode_token(token)
-        user = users_col.find_one({"_id": ObjectId(payload["sub"])})
-        return serialize_doc(user) if user else None
-    except Exception:
-        return None
-
-
 def create_page_version(page_id: str, elements: list, user_email: str, action: str = "save"):
-    """Create a version snapshot for a page"""
     version_count = page_versions_col.count_documents({"page_id": page_id})
     version = {
         "page_id": page_id,
@@ -128,10 +113,27 @@ def create_page_version(page_id: str, elements: list, user_email: str, action: s
         "elements": copy.deepcopy(elements),
         "created_at": datetime.now(timezone.utc),
         "created_by": user_email,
-        "action": action,  # "save", "publish", "restore"
+        "action": action,
     }
     page_versions_col.insert_one(version)
     return version_count + 1
+
+
+def flatten_content(elements, prefix=""):
+    """Flatten element tree into a dict of {element_id: content}"""
+    result = {}
+    for el in elements:
+        eid = el.get("id", "")
+        if eid and el.get("content") and len(el["content"]) > 0:
+            result[eid] = {
+                "content": el["content"],
+                "type": el.get("type", ""),
+                "label": el.get("label", ""),
+                "tag": el.get("tag", ""),
+            }
+        if el.get("children"):
+            result.update(flatten_content(el["children"]))
+    return result
 
 
 # ============================================================
@@ -164,7 +166,15 @@ class PageBulkContentUpdate(BaseModel):
     updates: List[PageContentUpdate]
 
 class PageStatusUpdate(BaseModel):
-    status: str  # "draft" or "published"
+    status: str
+
+class ProjectCreateRequest(BaseModel):
+    name: str
+    description: Optional[str] = ""
+
+class SchemaImportRequest(BaseModel):
+    project_name: str
+    pages: List[Dict[str, Any]]
 
 
 # ============================================================
@@ -185,9 +195,7 @@ def get_demo_homepage():
                 "type": "section",
                 "tag": "section",
                 "label": "Hero Section",
-                "style": {
-                    "classes": "pt-24 pb-32 px-16 bg-[#121414]"
-                },
+                "style": {"classes": "pt-24 pb-32 px-16 bg-[#121414]"},
                 "content": {},
                 "children": [
                     {
@@ -195,12 +203,8 @@ def get_demo_homepage():
                         "type": "badge",
                         "tag": "span",
                         "label": "Category Badge",
-                        "style": {
-                            "classes": "inline-block px-3 py-1 bg-emerald-500/10 rounded-sm mb-6 text-[0.65rem] tracking-[0.2em] text-emerald-400 uppercase font-bold"
-                        },
-                        "content": {
-                            "text": "Architecture of Clarity"
-                        },
+                        "style": {"classes": "inline-block px-3 py-1 bg-emerald-500/10 rounded-sm mb-6 text-[0.65rem] tracking-[0.2em] text-emerald-400 uppercase font-bold"},
+                        "content": {"text": "Architecture of Clarity"},
                         "children": []
                     },
                     {
@@ -208,18 +212,8 @@ def get_demo_homepage():
                         "type": "heading",
                         "tag": "h1",
                         "label": "Headline (H1)",
-                        "style": {
-                            "classes": "text-7xl font-bold leading-[1.05] tracking-tight text-white mb-8",
-                            "fontSize": "64px",
-                            "fontWeight": "700"
-                        },
-                        "content": {
-                            "text": "We are skilled at making the complex plain and simple.",
-                            "highlight": {
-                                "word": "complex",
-                                "color": "#4edea3"
-                            }
-                        },
+                        "style": {"classes": "text-7xl font-bold leading-[1.05] tracking-tight text-white mb-8", "fontSize": "64px", "fontWeight": "700"},
+                        "content": {"text": "We are skilled at making the complex plain and simple.", "highlight": {"word": "complex", "color": "#4edea3"}},
                         "children": []
                     },
                     {
@@ -227,12 +221,8 @@ def get_demo_homepage():
                         "type": "paragraph",
                         "tag": "p",
                         "label": "Body Text",
-                        "style": {
-                            "classes": "text-xl text-neutral-400 leading-relaxed mb-12 max-w-xl"
-                        },
-                        "content": {
-                            "text": "We build digital systems that prioritize efficiency without sacrificing the soul of the creative vision. Editorial control meets technical precision."
-                        },
+                        "style": {"classes": "text-xl text-neutral-400 leading-relaxed mb-12 max-w-xl"},
+                        "content": {"text": "We build digital systems that prioritize efficiency without sacrificing the soul of the creative vision. Editorial control meets technical precision."},
                         "children": []
                     },
                     {
@@ -240,13 +230,8 @@ def get_demo_homepage():
                         "type": "button",
                         "tag": "button",
                         "label": "Primary CTA",
-                        "style": {
-                            "classes": "bg-emerald-500 text-black px-8 py-3.5 rounded-lg font-bold uppercase tracking-widest text-xs"
-                        },
-                        "content": {
-                            "text": "Start a Project",
-                            "href": "#contact"
-                        },
+                        "style": {"classes": "bg-emerald-500 text-black px-8 py-3.5 rounded-lg font-bold uppercase tracking-widest text-xs"},
+                        "content": {"text": "Start a Project", "href": "#contact"},
                         "children": []
                     },
                     {
@@ -254,13 +239,8 @@ def get_demo_homepage():
                         "type": "button",
                         "tag": "button",
                         "label": "Secondary CTA",
-                        "style": {
-                            "classes": "text-white font-bold uppercase tracking-widest text-xs border-b-2 border-white/20 hover:border-emerald-500"
-                        },
-                        "content": {
-                            "text": "View Case Studies",
-                            "href": "#work"
-                        },
+                        "style": {"classes": "text-white font-bold uppercase tracking-widest text-xs border-b-2 border-white/20 hover:border-emerald-500"},
+                        "content": {"text": "View Case Studies", "href": "#work"},
                         "children": []
                     }
                 ]
@@ -270,9 +250,7 @@ def get_demo_homepage():
                 "type": "section",
                 "tag": "section",
                 "label": "Image Grid",
-                "style": {
-                    "classes": "px-16 grid grid-cols-12 gap-8 items-end mb-24 bg-[#121414]"
-                },
+                "style": {"classes": "px-16 grid grid-cols-12 gap-8 items-end mb-24 bg-[#121414]"},
                 "content": {},
                 "children": [
                     {
@@ -280,13 +258,8 @@ def get_demo_homepage():
                         "type": "image",
                         "tag": "img",
                         "label": "Large Image",
-                        "style": {
-                            "classes": "col-span-7 aspect-[4/5] rounded-sm overflow-hidden"
-                        },
-                        "content": {
-                            "src": "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&q=80",
-                            "alt": "Minimal Space"
-                        },
+                        "style": {"classes": "col-span-7 aspect-[4/5] rounded-sm overflow-hidden"},
+                        "content": {"src": "https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=800&q=80", "alt": "Minimal Space"},
                         "children": []
                     },
                     {
@@ -294,13 +267,8 @@ def get_demo_homepage():
                         "type": "image",
                         "tag": "img",
                         "label": "Small Image",
-                        "style": {
-                            "classes": "col-span-5 aspect-square rounded-sm overflow-hidden"
-                        },
-                        "content": {
-                            "src": "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=600&q=80",
-                            "alt": "Detail"
-                        },
+                        "style": {"classes": "col-span-5 aspect-square rounded-sm overflow-hidden"},
+                        "content": {"src": "https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=600&q=80", "alt": "Detail"},
                         "children": []
                     },
                     {
@@ -308,13 +276,8 @@ def get_demo_homepage():
                         "type": "quote",
                         "tag": "blockquote",
                         "label": "Quote Block",
-                        "style": {
-                            "classes": "col-span-5 p-8 border-l-2 border-emerald-500 bg-[#1a1b1b]"
-                        },
-                        "content": {
-                            "title": "Obsessive Detail",
-                            "text": "Every pixel is engineered to serve the narrative, ensuring a seamless bridge between data and design."
-                        },
+                        "style": {"classes": "col-span-5 p-8 border-l-2 border-emerald-500 bg-[#1a1b1b]"},
+                        "content": {"title": "Obsessive Detail", "text": "Every pixel is engineered to serve the narrative, ensuring a seamless bridge between data and design."},
                         "children": []
                     }
                 ]
@@ -324,9 +287,7 @@ def get_demo_homepage():
                 "type": "section",
                 "tag": "section",
                 "label": "Features Section",
-                "style": {
-                    "classes": "px-16 py-24 bg-[#0d0e0e]"
-                },
+                "style": {"classes": "px-16 py-24 bg-[#0d0e0e]"},
                 "content": {},
                 "children": [
                     {
@@ -334,12 +295,8 @@ def get_demo_homepage():
                         "type": "heading",
                         "tag": "h2",
                         "label": "Section Title (H2)",
-                        "style": {
-                            "classes": "text-4xl font-bold tracking-tight text-white mb-4"
-                        },
-                        "content": {
-                            "text": "Built for precision."
-                        },
+                        "style": {"classes": "text-4xl font-bold tracking-tight text-white mb-4"},
+                        "content": {"text": "Built for precision."},
                         "children": []
                     },
                     {
@@ -347,56 +304,13 @@ def get_demo_homepage():
                         "type": "paragraph",
                         "tag": "p",
                         "label": "Section Subtitle",
-                        "style": {
-                            "classes": "text-lg text-neutral-400 mb-16 max-w-2xl"
-                        },
-                        "content": {
-                            "text": "Our approach combines meticulous engineering with an artistic sensibility that elevates every interface."
-                        },
+                        "style": {"classes": "text-lg text-neutral-400 mb-16 max-w-2xl"},
+                        "content": {"text": "Our approach combines meticulous engineering with an artistic sensibility that elevates every interface."},
                         "children": []
                     },
-                    {
-                        "id": "feature-card-1",
-                        "type": "card",
-                        "tag": "div",
-                        "label": "Feature Card 1",
-                        "style": {
-                            "classes": "p-8 bg-[#1a1b1b] rounded-sm"
-                        },
-                        "content": {
-                            "title": "Visual Hierarchy",
-                            "text": "Structure that guides the eye naturally through content layers, creating intuitive navigation paths."
-                        },
-                        "children": []
-                    },
-                    {
-                        "id": "feature-card-2",
-                        "type": "card",
-                        "tag": "div",
-                        "label": "Feature Card 2",
-                        "style": {
-                            "classes": "p-8 bg-[#1a1b1b] rounded-sm"
-                        },
-                        "content": {
-                            "title": "Technical Precision",
-                            "text": "Every component is engineered for performance, accessibility, and maintainability across all platforms."
-                        },
-                        "children": []
-                    },
-                    {
-                        "id": "feature-card-3",
-                        "type": "card",
-                        "tag": "div",
-                        "label": "Feature Card 3",
-                        "style": {
-                            "classes": "p-8 bg-[#1a1b1b] rounded-sm"
-                        },
-                        "content": {
-                            "title": "Creative Control",
-                            "text": "Fine-grained editorial tools that empower content teams without compromising design integrity."
-                        },
-                        "children": []
-                    }
+                    {"id": "feature-card-1", "type": "card", "tag": "div", "label": "Feature Card 1", "style": {"classes": "p-8 bg-[#1a1b1b] rounded-sm"}, "content": {"title": "Visual Hierarchy", "text": "Structure that guides the eye naturally through content layers, creating intuitive navigation paths."}, "children": []},
+                    {"id": "feature-card-2", "type": "card", "tag": "div", "label": "Feature Card 2", "style": {"classes": "p-8 bg-[#1a1b1b] rounded-sm"}, "content": {"title": "Technical Precision", "text": "Every component is engineered for performance, accessibility, and maintainability across all platforms."}, "children": []},
+                    {"id": "feature-card-3", "type": "card", "tag": "div", "label": "Feature Card 3", "style": {"classes": "p-8 bg-[#1a1b1b] rounded-sm"}, "content": {"title": "Creative Control", "text": "Fine-grained editorial tools that empower content teams without compromising design integrity."}, "children": []}
                 ]
             }
         ]
@@ -413,125 +327,22 @@ def get_demo_about_page():
         "updated_at": datetime.now(timezone.utc),
         "elements": [
             {
-                "id": "about-hero",
-                "type": "section",
-                "tag": "section",
-                "label": "About Hero",
-                "style": {
-                    "classes": "pt-24 pb-16 px-16 bg-[#121414]"
-                },
-                "content": {},
+                "id": "about-hero", "type": "section", "tag": "section", "label": "About Hero",
+                "style": {"classes": "pt-24 pb-16 px-16 bg-[#121414]"}, "content": {},
                 "children": [
-                    {
-                        "id": "about-badge",
-                        "type": "badge",
-                        "tag": "span",
-                        "label": "Page Badge",
-                        "style": {
-                            "classes": "inline-block px-3 py-1 bg-emerald-500/10 rounded-sm mb-6 text-[0.65rem] tracking-[0.2em] text-emerald-400 uppercase font-bold"
-                        },
-                        "content": {
-                            "text": "Our Story"
-                        },
-                        "children": []
-                    },
-                    {
-                        "id": "about-headline",
-                        "type": "heading",
-                        "tag": "h1",
-                        "label": "Page Title (H1)",
-                        "style": {
-                            "classes": "text-6xl font-bold leading-[1.1] tracking-tight text-white mb-8"
-                        },
-                        "content": {
-                            "text": "We believe in the power of clarity.",
-                            "highlight": {
-                                "word": "clarity",
-                                "color": "#4edea3"
-                            }
-                        },
-                        "children": []
-                    },
-                    {
-                        "id": "about-intro",
-                        "type": "paragraph",
-                        "tag": "p",
-                        "label": "Introduction",
-                        "style": {
-                            "classes": "text-xl text-neutral-400 leading-relaxed max-w-2xl"
-                        },
-                        "content": {
-                            "text": "Founded in 2020, we have been pushing the boundaries of digital design. Our team of engineers and designers work in harmony to create systems that are both beautiful and functional."
-                        },
-                        "children": []
-                    }
+                    {"id": "about-badge", "type": "badge", "tag": "span", "label": "Page Badge", "style": {"classes": "inline-block px-3 py-1 bg-emerald-500/10 rounded-sm mb-6 text-[0.65rem] tracking-[0.2em] text-emerald-400 uppercase font-bold"}, "content": {"text": "Our Story"}, "children": []},
+                    {"id": "about-headline", "type": "heading", "tag": "h1", "label": "Page Title (H1)", "style": {"classes": "text-6xl font-bold leading-[1.1] tracking-tight text-white mb-8"}, "content": {"text": "We believe in the power of clarity.", "highlight": {"word": "clarity", "color": "#4edea3"}}, "children": []},
+                    {"id": "about-intro", "type": "paragraph", "tag": "p", "label": "Introduction", "style": {"classes": "text-xl text-neutral-400 leading-relaxed max-w-2xl"}, "content": {"text": "Founded in 2020, we have been pushing the boundaries of digital design. Our team of engineers and designers work in harmony to create systems that are both beautiful and functional."}, "children": []}
                 ]
             },
             {
-                "id": "about-values",
-                "type": "section",
-                "tag": "section",
-                "label": "Values Section",
-                "style": {
-                    "classes": "px-16 py-24 bg-[#0d0e0e]"
-                },
-                "content": {},
+                "id": "about-values", "type": "section", "tag": "section", "label": "Values Section",
+                "style": {"classes": "px-16 py-24 bg-[#0d0e0e]"}, "content": {},
                 "children": [
-                    {
-                        "id": "values-title",
-                        "type": "heading",
-                        "tag": "h2",
-                        "label": "Values Title (H2)",
-                        "style": {
-                            "classes": "text-3xl font-bold tracking-tight text-white mb-12"
-                        },
-                        "content": {
-                            "text": "Our Values"
-                        },
-                        "children": []
-                    },
-                    {
-                        "id": "value-1",
-                        "type": "card",
-                        "tag": "div",
-                        "label": "Value Card 1",
-                        "style": {
-                            "classes": "p-6 bg-[#1a1b1b] rounded-sm"
-                        },
-                        "content": {
-                            "title": "Precision",
-                            "text": "Every detail matters. We measure twice and cut once, ensuring every component meets our exacting standards."
-                        },
-                        "children": []
-                    },
-                    {
-                        "id": "value-2",
-                        "type": "card",
-                        "tag": "div",
-                        "label": "Value Card 2",
-                        "style": {
-                            "classes": "p-6 bg-[#1a1b1b] rounded-sm"
-                        },
-                        "content": {
-                            "title": "Collaboration",
-                            "text": "Great work happens when diverse perspectives converge. We foster an environment where every voice shapes the outcome."
-                        },
-                        "children": []
-                    },
-                    {
-                        "id": "value-3",
-                        "type": "card",
-                        "tag": "div",
-                        "label": "Value Card 3",
-                        "style": {
-                            "classes": "p-6 bg-[#1a1b1b] rounded-sm"
-                        },
-                        "content": {
-                            "title": "Innovation",
-                            "text": "We stay at the frontier of technology, constantly exploring new approaches to solve complex design challenges."
-                        },
-                        "children": []
-                    }
+                    {"id": "values-title", "type": "heading", "tag": "h2", "label": "Values Title (H2)", "style": {"classes": "text-3xl font-bold tracking-tight text-white mb-12"}, "content": {"text": "Our Values"}, "children": []},
+                    {"id": "value-1", "type": "card", "tag": "div", "label": "Value Card 1", "style": {"classes": "p-6 bg-[#1a1b1b] rounded-sm"}, "content": {"title": "Precision", "text": "Every detail matters. We measure twice and cut once, ensuring every component meets our exacting standards."}, "children": []},
+                    {"id": "value-2", "type": "card", "tag": "div", "label": "Value Card 2", "style": {"classes": "p-6 bg-[#1a1b1b] rounded-sm"}, "content": {"title": "Collaboration", "text": "Great work happens when diverse perspectives converge. We foster an environment where every voice shapes the outcome."}, "children": []},
+                    {"id": "value-3", "type": "card", "tag": "div", "label": "Value Card 3", "style": {"classes": "p-6 bg-[#1a1b1b] rounded-sm"}, "content": {"title": "Innovation", "text": "We stay at the frontier of technology, constantly exploring new approaches to solve complex design challenges."}, "children": []}
                 ]
             }
         ]
@@ -539,39 +350,26 @@ def get_demo_about_page():
 
 
 def seed_database():
-    """Seed with default admin and demo pages if empty"""
     if users_col.count_documents({}) == 0:
-        admin_user = {
-            "email": "admin@monolith.cms",
-            "password_hash": hash_password("admin123"),
-            "name": "Admin",
-            "role": "admin",
-            "is_active": True,
-            "created_at": datetime.now(timezone.utc)
-        }
-        editor_user = {
-            "email": "editor@monolith.cms",
-            "password_hash": hash_password("editor123"),
-            "name": "Editor",
-            "role": "editor",
-            "is_active": True,
-            "created_at": datetime.now(timezone.utc)
-        }
-        users_col.insert_many([admin_user, editor_user])
-        print("Seeded users: admin@monolith.cms / admin123, editor@monolith.cms / editor123")
+        users_col.insert_many([
+            {"email": "admin@monolith.cms", "password_hash": hash_password("admin123"), "name": "Admin", "role": "admin", "is_active": True, "created_at": datetime.now(timezone.utc)},
+            {"email": "editor@monolith.cms", "password_hash": hash_password("editor123"), "name": "Editor", "role": "editor", "is_active": True, "created_at": datetime.now(timezone.utc)},
+        ])
+        print("Seeded users")
 
     if projects_col.count_documents({}) == 0:
         projects_col.insert_one({
             "name": "The Monolith",
             "slug": "the-monolith",
             "project_id": "default",
+            "description": "Demo project",
             "created_at": datetime.now(timezone.utc)
         })
 
     if pages_col.count_documents({}) == 0:
         pages_col.insert_one(get_demo_homepage())
         pages_col.insert_one(get_demo_about_page())
-        print("Seeded demo pages: Homepage, About")
+        print("Seeded demo pages")
 
 
 # ============================================================
@@ -583,6 +381,7 @@ async def lifespan(app: FastAPI):
     users_col.create_index("email", unique=True)
     pages_col.create_index([("project_id", 1), ("slug", 1)])
     page_versions_col.create_index([("page_id", 1), ("version_number", DESCENDING)])
+    projects_col.create_index("project_id", unique=True)
     seed_database()
     yield
     client.close()
@@ -612,39 +411,20 @@ async def login(req: LoginRequest):
     token = create_token(str(user["_id"]), user["email"], user["role"])
     return {
         "token": token,
-        "user": {
-            "id": str(user["_id"]),
-            "email": user["email"],
-            "name": user.get("name", ""),
-            "role": user["role"]
-        }
+        "user": {"id": str(user["_id"]), "email": user["email"], "name": user.get("name", ""), "role": user["role"]}
     }
-
 
 @app.post("/api/auth/register")
 async def register(req: RegisterRequest, current_user: dict = Depends(require_admin)):
     if users_col.find_one({"email": req.email}):
         raise HTTPException(status_code=400, detail="Email already exists")
-    new_user = {
-        "email": req.email,
-        "password_hash": hash_password(req.password),
-        "name": req.name,
-        "role": req.role,
-        "is_active": True,
-        "created_at": datetime.now(timezone.utc)
-    }
+    new_user = {"email": req.email, "password_hash": hash_password(req.password), "name": req.name, "role": req.role, "is_active": True, "created_at": datetime.now(timezone.utc)}
     result = users_col.insert_one(new_user)
     return {"id": str(result.inserted_id), "email": req.email, "name": req.name, "role": req.role}
 
-
 @app.get("/api/auth/me")
 async def get_me(current_user: dict = Depends(get_current_user)):
-    return {
-        "id": current_user["_id"],
-        "email": current_user["email"],
-        "name": current_user.get("name", ""),
-        "role": current_user["role"]
-    }
+    return {"id": current_user["_id"], "email": current_user["email"], "name": current_user.get("name", ""), "role": current_user["role"]}
 
 
 # ============================================================
@@ -654,23 +434,13 @@ async def get_me(current_user: dict = Depends(get_current_user)):
 @app.get("/api/users")
 async def list_users(current_user: dict = Depends(require_admin)):
     users = list(users_col.find({}))
-    return [serialize_doc({
-        "_id": u["_id"],
-        "email": u["email"],
-        "name": u.get("name", ""),
-        "role": u["role"],
-        "is_active": u.get("is_active", True),
-        "created_at": u.get("created_at"),
-    }) for u in users]
-
+    return [serialize_doc({"_id": u["_id"], "email": u["email"], "name": u.get("name", ""), "role": u["role"], "is_active": u.get("is_active", True), "created_at": u.get("created_at")}) for u in users]
 
 @app.put("/api/users/{user_id}")
 async def update_user(user_id: str, body: UpdateUserRequest, current_user: dict = Depends(require_admin)):
     user = users_col.find_one({"_id": ObjectId(user_id)})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-
-    # Prevent self-deactivation or role-change for the last admin
     if str(user["_id"]) == current_user["_id"]:
         if body.is_active is False:
             raise HTTPException(status_code=400, detail="Cannot deactivate your own account")
@@ -678,39 +448,22 @@ async def update_user(user_id: str, body: UpdateUserRequest, current_user: dict 
             admin_count = users_col.count_documents({"role": "admin", "is_active": {"$ne": False}})
             if admin_count <= 1:
                 raise HTTPException(status_code=400, detail="Cannot change role: you are the last admin")
-
     update_fields = {}
-    if body.name is not None:
-        update_fields["name"] = body.name
-    if body.role is not None and body.role in ["admin", "editor"]:
-        update_fields["role"] = body.role
-    if body.is_active is not None:
-        update_fields["is_active"] = body.is_active
-
+    if body.name is not None: update_fields["name"] = body.name
+    if body.role is not None and body.role in ["admin", "editor"]: update_fields["role"] = body.role
+    if body.is_active is not None: update_fields["is_active"] = body.is_active
     if update_fields:
         users_col.update_one({"_id": ObjectId(user_id)}, {"$set": update_fields})
-
     updated = users_col.find_one({"_id": ObjectId(user_id)})
-    return serialize_doc({
-        "_id": updated["_id"],
-        "email": updated["email"],
-        "name": updated.get("name", ""),
-        "role": updated["role"],
-        "is_active": updated.get("is_active", True),
-    })
-
+    return serialize_doc({"_id": updated["_id"], "email": updated["email"], "name": updated.get("name", ""), "role": updated["role"], "is_active": updated.get("is_active", True)})
 
 @app.put("/api/users/{user_id}/password")
 async def change_user_password(user_id: str, body: ChangePasswordRequest, current_user: dict = Depends(require_admin)):
     user = users_col.find_one({"_id": ObjectId(user_id)})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    users_col.update_one(
-        {"_id": ObjectId(user_id)},
-        {"$set": {"password_hash": hash_password(body.new_password)}}
-    )
+    users_col.update_one({"_id": ObjectId(user_id)}, {"$set": {"password_hash": hash_password(body.new_password)}})
     return {"success": True}
-
 
 @app.delete("/api/users/{user_id}")
 async def delete_user(user_id: str, current_user: dict = Depends(require_admin)):
@@ -723,17 +476,177 @@ async def delete_user(user_id: str, current_user: dict = Depends(require_admin))
 
 
 # ============================================================
+# PROJECTS ENDPOINTS
+# ============================================================
+
+@app.get("/api/projects")
+async def list_projects(current_user: dict = Depends(get_current_user)):
+    projects = list(projects_col.find({}))
+    result = []
+    for p in projects:
+        page_count = pages_col.count_documents({"project_id": p["project_id"]})
+        result.append(serialize_doc({
+            "_id": p["_id"],
+            "project_id": p["project_id"],
+            "name": p["name"],
+            "description": p.get("description", ""),
+            "page_count": page_count,
+            "created_at": p.get("created_at"),
+        }))
+    return result
+
+@app.post("/api/projects")
+async def create_project(body: ProjectCreateRequest, current_user: dict = Depends(require_admin)):
+    project_id = body.name.lower().replace(" ", "-").replace("_", "-")
+    # Ensure unique
+    if projects_col.find_one({"project_id": project_id}):
+        project_id = f"{project_id}-{uuid.uuid4().hex[:6]}"
+    project = {
+        "name": body.name,
+        "project_id": project_id,
+        "description": body.description or "",
+        "slug": project_id,
+        "created_at": datetime.now(timezone.utc),
+    }
+    projects_col.insert_one(project)
+    return serialize_doc(project)
+
+
+# ============================================================
+# SCHEMA IMPORT ENDPOINT
+# ============================================================
+
+@app.post("/api/projects/import")
+async def import_schema(body: SchemaImportRequest, current_user: dict = Depends(require_admin)):
+    """
+    Import a cms-schema.json to create/update a project with all pages and elements.
+    
+    Expected body format:
+    {
+      "project_name": "My Website",
+      "pages": [
+        {
+          "name": "Homepage",
+          "slug": "/",
+          "elements": [
+            {
+              "id": "hero-title",
+              "type": "heading",
+              "tag": "h1",
+              "label": "Hero Title",
+              "content": { "text": "Default headline" },
+              "style": { "classes": "text-5xl font-bold" },
+              "children": []
+            }
+          ]
+        }
+      ]
+    }
+    """
+    # Create or find project
+    project_id = body.project_name.lower().replace(" ", "-").replace("_", "-")
+    existing_project = projects_col.find_one({"project_id": project_id})
+
+    if not existing_project:
+        projects_col.insert_one({
+            "name": body.project_name,
+            "project_id": project_id,
+            "slug": project_id,
+            "description": f"Imported project: {body.project_name}",
+            "created_at": datetime.now(timezone.utc),
+        })
+
+    # Import pages
+    imported_pages = []
+    for page_data in body.pages:
+        slug = page_data.get("slug", "/")
+        name = page_data.get("name", "Untitled")
+        elements = page_data.get("elements", [])
+
+        # Check if page with this slug already exists for the project
+        existing_page = pages_col.find_one({"project_id": project_id, "slug": slug})
+
+        if existing_page:
+            # Update existing page elements (merge - keep CMS edits where element IDs match)
+            merged_elements = merge_elements(existing_page.get("elements", []), elements)
+            pages_col.update_one(
+                {"_id": existing_page["_id"]},
+                {"$set": {
+                    "elements": merged_elements,
+                    "name": name,
+                    "updated_at": datetime.now(timezone.utc),
+                }}
+            )
+            imported_pages.append({"name": name, "slug": slug, "action": "updated"})
+        else:
+            # Create new page
+            pages_col.insert_one({
+                "name": name,
+                "slug": slug,
+                "status": "draft",
+                "project_id": project_id,
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
+                "elements": elements,
+            })
+            imported_pages.append({"name": name, "slug": slug, "action": "created"})
+
+    return {
+        "success": True,
+        "project_id": project_id,
+        "project_name": body.project_name,
+        "pages_imported": len(imported_pages),
+        "details": imported_pages,
+    }
+
+
+def merge_elements(existing_elements, new_elements):
+    """
+    Merge new elements with existing ones.
+    - If element ID matches: keep existing content (CMS edits), update style from new (design changes)
+    - If element ID is new: add it
+    """
+    existing_map = {}
+    def build_map(elements):
+        for el in elements:
+            existing_map[el.get("id")] = el
+            if el.get("children"):
+                build_map(el["children"])
+    build_map(existing_elements)
+
+    def merge_tree(new_els):
+        result = []
+        for new_el in new_els:
+            eid = new_el.get("id")
+            if eid in existing_map:
+                # Keep CMS content, take new style/structure
+                merged = {
+                    **new_el,
+                    "content": existing_map[eid].get("content", new_el.get("content", {})),
+                }
+                if new_el.get("children"):
+                    merged["children"] = merge_tree(new_el["children"])
+                result.append(merged)
+            else:
+                result.append(new_el)
+        return result
+
+    return merge_tree(new_elements)
+
+
+# ============================================================
 # PAGES ENDPOINTS
 # ============================================================
 
 @app.get("/api/pages")
-async def list_pages(current_user: dict = Depends(get_current_user)):
-    pages = list(pages_col.find({"project_id": "default"}))
+async def list_pages(project_id: str = "default", current_user: dict = Depends(get_current_user)):
+    pages = list(pages_col.find({"project_id": project_id}))
     return [serialize_doc({
         "_id": p["_id"],
         "name": p["name"],
         "slug": p["slug"],
         "status": p["status"],
+        "project_id": p["project_id"],
         "updated_at": p.get("updated_at"),
         "element_count": count_elements(p.get("elements", []))
     }) for p in pages]
@@ -758,59 +671,37 @@ async def get_page(page_id: str, current_user: dict = Depends(get_current_user))
 
 @app.put("/api/pages/{page_id}/content")
 async def update_page_content(page_id: str, update: PageContentUpdate, current_user: dict = Depends(get_current_user)):
-    """Update a single element's content (text, images, links only - NOT style/layout)"""
     page = pages_col.find_one({"_id": ObjectId(page_id)})
     if not page:
         raise HTTPException(status_code=404, detail="Page not found")
-
     elements = page.get("elements", [])
     updated = update_element_content(elements, update.element_id, update.content)
-
     if not updated:
         raise HTTPException(status_code=404, detail=f"Element {update.element_id} not found")
-
     pages_col.update_one(
         {"_id": ObjectId(page_id)},
-        {
-            "$set": {
-                "elements": elements,
-                "updated_at": datetime.now(timezone.utc),
-                "status": "draft"
-            }
-        }
+        {"$set": {"elements": elements, "updated_at": datetime.now(timezone.utc), "status": "draft"}}
     )
     return {"success": True, "element_id": update.element_id}
 
 
 @app.put("/api/pages/{page_id}/content/bulk")
 async def update_page_content_bulk(page_id: str, body: PageBulkContentUpdate, current_user: dict = Depends(get_current_user)):
-    """Bulk update multiple elements' content and create a version snapshot"""
     page = pages_col.find_one({"_id": ObjectId(page_id)})
     if not page:
         raise HTTPException(status_code=404, detail="Page not found")
-
-    # Snapshot BEFORE applying changes
     create_page_version(page_id, page.get("elements", []), current_user.get("email", "unknown"), "save")
-
     elements = page.get("elements", [])
     for upd in body.updates:
         update_element_content(elements, upd.element_id, upd.content)
-
     pages_col.update_one(
         {"_id": ObjectId(page_id)},
-        {
-            "$set": {
-                "elements": elements,
-                "updated_at": datetime.now(timezone.utc),
-                "status": "draft"
-            }
-        }
+        {"$set": {"elements": elements, "updated_at": datetime.now(timezone.utc), "status": "draft"}}
     )
     return {"success": True, "updated_count": len(body.updates)}
 
 
 def update_element_content(elements, element_id, new_content):
-    """Recursively find element by ID and update only its content"""
     for el in elements:
         if el.get("id") == element_id:
             el["content"] = {**el.get("content", {}), **new_content}
@@ -823,86 +714,51 @@ def update_element_content(elements, element_id, new_content):
 
 @app.put("/api/pages/{page_id}/status")
 async def update_page_status(page_id: str, body: PageStatusUpdate, current_user: dict = Depends(get_current_user)):
-    """Update page status (draft/published)"""
     if body.status not in ["draft", "published"]:
         raise HTTPException(status_code=400, detail="Status must be 'draft' or 'published'")
-
     page = pages_col.find_one({"_id": ObjectId(page_id)})
     if not page:
         raise HTTPException(status_code=404, detail="Page not found")
-
-    update_fields = {
-        "status": body.status,
-        "updated_at": datetime.now(timezone.utc)
-    }
-
+    update_fields = {"status": body.status, "updated_at": datetime.now(timezone.utc)}
     if body.status == "published":
         update_fields["published_at"] = datetime.now(timezone.utc)
         update_fields["published_elements"] = page.get("elements", [])
         create_page_version(page_id, page.get("elements", []), current_user.get("email", "unknown"), "publish")
-
-    pages_col.update_one(
-        {"_id": ObjectId(page_id)},
-        {"$set": update_fields}
-    )
+    pages_col.update_one({"_id": ObjectId(page_id)}, {"$set": update_fields})
     return {"success": True, "status": body.status}
 
 
 # ============================================================
-# PAGE VERSION HISTORY ENDPOINTS
+# PAGE VERSION HISTORY
 # ============================================================
 
 @app.get("/api/pages/{page_id}/versions")
 async def list_page_versions(page_id: str, current_user: dict = Depends(get_current_user)):
-    """List all version snapshots for a page"""
     versions = list(page_versions_col.find(
-        {"page_id": page_id},
-        {"elements": 0}  # Exclude full element tree for listing
+        {"page_id": page_id}, {"elements": 0}
     ).sort("version_number", DESCENDING).limit(50))
     return [serialize_doc(v) for v in versions]
 
-
 @app.get("/api/pages/{page_id}/versions/{version_number}")
 async def get_page_version(page_id: str, version_number: int, current_user: dict = Depends(get_current_user)):
-    """Get a specific version snapshot (includes elements)"""
-    version = page_versions_col.find_one({
-        "page_id": page_id,
-        "version_number": version_number
-    })
+    version = page_versions_col.find_one({"page_id": page_id, "version_number": version_number})
     if not version:
         raise HTTPException(status_code=404, detail="Version not found")
     return serialize_doc(version)
 
-
 @app.post("/api/pages/{page_id}/versions/{version_number}/restore")
 async def restore_page_version(page_id: str, version_number: int, current_user: dict = Depends(get_current_user)):
-    """Restore a page to a previous version"""
-    version = page_versions_col.find_one({
-        "page_id": page_id,
-        "version_number": version_number
-    })
+    version = page_versions_col.find_one({"page_id": page_id, "version_number": version_number})
     if not version:
         raise HTTPException(status_code=404, detail="Version not found")
-
     page = pages_col.find_one({"_id": ObjectId(page_id)})
     if not page:
         raise HTTPException(status_code=404, detail="Page not found")
-
-    # Snapshot current state before restore
     create_page_version(page_id, page.get("elements", []), current_user.get("email", "unknown"), "restore")
-
-    # Restore elements from version
     pages_col.update_one(
         {"_id": ObjectId(page_id)},
-        {
-            "$set": {
-                "elements": version["elements"],
-                "updated_at": datetime.now(timezone.utc),
-                "status": "draft"
-            }
-        }
+        {"$set": {"elements": version["elements"], "updated_at": datetime.now(timezone.utc), "status": "draft"}}
     )
-
     updated_page = pages_col.find_one({"_id": ObjectId(page_id)})
     return serialize_doc(updated_page)
 
@@ -911,9 +767,25 @@ async def restore_page_version(page_id: str, version_number: int, current_user: 
 # PUBLIC API (for website consumption)
 # ============================================================
 
-@app.get("/api/public/pages")
-async def public_list_pages():
-    pages = list(pages_col.find({"project_id": "default", "status": "published"}))
+@app.get("/api/public/{project_id}/content")
+async def public_project_content(project_id: str):
+    """
+    Returns ALL published content for a project as a flat map:
+    { "page_slug": { "element_id": { content, type, label, tag }, ... }, ... }
+    
+    This is the main endpoint websites use to fetch CMS content.
+    """
+    pages = list(pages_col.find({"project_id": project_id, "status": "published"}))
+    result = {}
+    for p in pages:
+        elements = p.get("published_elements", p.get("elements", []))
+        result[p["slug"]] = flatten_content(elements)
+    return result
+
+
+@app.get("/api/public/{project_id}/pages")
+async def public_list_pages(project_id: str):
+    pages = list(pages_col.find({"project_id": project_id, "status": "published"}))
     return [serialize_doc({
         "_id": p["_id"],
         "name": p["name"],
@@ -923,11 +795,11 @@ async def public_list_pages():
     }) for p in pages]
 
 
-@app.get("/api/public/pages/{slug:path}")
-async def public_get_page(slug: str):
+@app.get("/api/public/{project_id}/pages/{slug:path}")
+async def public_get_page(project_id: str, slug: str):
     if not slug.startswith("/"):
         slug = "/" + slug
-    page = pages_col.find_one({"slug": slug, "status": "published"})
+    page = pages_col.find_one({"slug": slug, "project_id": project_id, "status": "published"})
     if not page:
         raise HTTPException(status_code=404, detail="Page not found or not published")
     return serialize_doc({
@@ -937,6 +809,163 @@ async def public_get_page(slug: str):
         "published_at": page.get("published_at"),
         "elements": page.get("published_elements", page.get("elements", []))
     })
+
+
+# Keep legacy public endpoints for backward compatibility
+@app.get("/api/public/pages")
+async def public_list_pages_legacy():
+    pages = list(pages_col.find({"project_id": "default", "status": "published"}))
+    return [serialize_doc({
+        "_id": p["_id"], "name": p["name"], "slug": p["slug"],
+        "published_at": p.get("published_at"),
+        "elements": p.get("published_elements", p.get("elements", []))
+    }) for p in pages]
+
+
+# ============================================================
+# CLIENT LIBRARY (served as JS)
+# ============================================================
+
+CLIENT_JS = """
+/**
+ * Monolith CMS - Client Library v1.0
+ * Drop this script into any website to connect it to The Monolith CMS.
+ *
+ * Usage:
+ *   <script src="YOUR_CMS_URL/api/client.js"
+ *           data-project="your-project-id"
+ *           data-cms-url="YOUR_CMS_URL"></script>
+ *
+ * HTML elements use data-cms-id to map to CMS content:
+ *   <h1 data-cms-id="hero-headline">Default text</h1>
+ *   <img data-cms-id="hero-image" src="default.jpg" alt="default" />
+ */
+(function() {
+  'use strict';
+
+  var script = document.currentScript;
+  var projectId = script && script.getAttribute('data-project');
+  var cmsUrl = script && script.getAttribute('data-cms-url');
+
+  if (!projectId) {
+    console.warn('[Monolith CMS] Missing data-project attribute on script tag.');
+    return;
+  }
+  if (!cmsUrl) {
+    // Try to infer from script src
+    if (script && script.src) {
+      var url = new URL(script.src);
+      cmsUrl = url.origin;
+    } else {
+      console.warn('[Monolith CMS] Missing data-cms-url attribute on script tag.');
+      return;
+    }
+  }
+
+  // Remove trailing slash
+  cmsUrl = cmsUrl.replace(/\\/$/, '');
+
+  // Detect current page slug
+  var pageSlug = window.location.pathname || '/';
+
+  function applyContent(contentMap) {
+    if (!contentMap) return;
+
+    // Get content for current page
+    var pageContent = contentMap[pageSlug];
+    if (!pageContent) {
+      // Try without trailing slash or with trailing slash
+      pageContent = contentMap[pageSlug.replace(/\\/$/, '')] || contentMap[pageSlug + '/'];
+    }
+    if (!pageContent) {
+      console.log('[Monolith CMS] No published content found for page:', pageSlug);
+      return;
+    }
+
+    // Find all elements with data-cms-id
+    var elements = document.querySelectorAll('[data-cms-id]');
+    var applied = 0;
+
+    elements.forEach(function(el) {
+      var cmsId = el.getAttribute('data-cms-id');
+      var entry = pageContent[cmsId];
+      if (!entry || !entry.content) return;
+
+      var content = entry.content;
+      var tag = el.tagName.toLowerCase();
+
+      // Apply content based on element type
+      if (tag === 'img') {
+        if (content.src) el.src = content.src;
+        if (content.alt) el.alt = content.alt;
+      } else if (tag === 'a') {
+        if (content.text) el.textContent = content.text;
+        if (content.href) el.href = content.href;
+      } else if (content.text !== undefined) {
+        // Handle text with highlight
+        if (content.highlight && content.highlight.word) {
+          var regex = new RegExp('(' + content.highlight.word.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + ')', 'gi');
+          var parts = content.text.split(regex);
+          el.innerHTML = '';
+          parts.forEach(function(part) {
+            if (part.toLowerCase() === content.highlight.word.toLowerCase()) {
+              var span = document.createElement('span');
+              span.style.color = content.highlight.color || '#4edea3';
+              span.textContent = part;
+              el.appendChild(span);
+            } else {
+              el.appendChild(document.createTextNode(part));
+            }
+          });
+        } else {
+          el.textContent = content.text;
+        }
+      }
+
+      applied++;
+    });
+
+    console.log('[Monolith CMS] Applied', applied, 'content updates for', pageSlug);
+  }
+
+  // Fetch and apply content
+  function init() {
+    var apiUrl = cmsUrl + '/api/public/' + projectId + '/content';
+
+    fetch(apiUrl)
+      .then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function(data) {
+        applyContent(data);
+        // Dispatch event for frameworks that need to know
+        window.dispatchEvent(new CustomEvent('monolith-cms-loaded', { detail: data }));
+      })
+      .catch(function(err) {
+        console.warn('[Monolith CMS] Failed to load content:', err.message);
+      });
+  }
+
+  // Run when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+  // Expose global API
+  window.MonolithCMS = {
+    projectId: projectId,
+    cmsUrl: cmsUrl,
+    refresh: init,
+  };
+})();
+"""
+
+@app.get("/api/client.js")
+async def serve_client_js():
+    return Response(content=CLIENT_JS, media_type="application/javascript")
 
 
 # ============================================================

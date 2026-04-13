@@ -1,26 +1,26 @@
 [
   {
-    "content": "Phase 3: Backend - Add page version history endpoints + user management endpoints",
-    "status": "completed"
+    "content": "Phase 4: Backend - Multi-project support + Schema Import API + Public content delivery endpoints",
+    "status": "in_progress"
   },
   {
-    "content": "Phase 3: Frontend - Undo/Redo with keyboard shortcuts (Ctrl+Z/Y)",
-    "status": "completed"
+    "content": "Phase 4: Client Library - Vanilla JS snippet (client.js) for any website",
+    "status": "pending"
   },
   {
-    "content": "Phase 3: Frontend - History tab with version list + restore",
-    "status": "completed"
+    "content": "Phase 4: Client Library - React Hook (useMonolithCMS) for React/Emergent websites",
+    "status": "pending"
   },
   {
-    "content": "Phase 3: Frontend - Admin User Management panel",
-    "status": "completed"
+    "content": "Phase 4: Integration Documentation - Complete Emergent instruction document",
+    "status": "pending"
   },
   {
-    "content": "Phase 3: End to End Testing",
-    "status": "completed"
+    "content": "Phase 4: End to End Testing",
+    "status": "pending"
   },
   {
-    "content": "Phase 3: Fix all bugs from testing (none found - all passed)",
-    "status": "completed"
+    "content": "Phase 4: Fix all bugs from testing",
+    "status": "pending"
   }
 ]

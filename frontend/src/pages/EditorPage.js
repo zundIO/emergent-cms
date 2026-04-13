@@ -10,6 +10,7 @@ import PropertyPanel from '../components/editor/PropertyPanel';
 import PagesList from '../components/editor/PagesList';
 import HistoryPanel from '../components/editor/HistoryPanel';
 import UserManagement from '../components/editor/UserManagement';
+import IntegrationDocs from '../components/editor/IntegrationDocs';
 import '../App.css';
 
 export default function EditorPage() {
@@ -22,6 +23,7 @@ export default function EditorPage() {
   const [activeTab, setActiveTab] = useState('structure');
   const [showPagesList, setShowPagesList] = useState(false);
   const [showUserManagement, setShowUserManagement] = useState(false);
+  const [showIntegrationDocs, setShowIntegrationDocs] = useState(false);
   const [activeSidebar, setActiveSidebar] = useState('pages');
   const [isDirty, setIsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -85,6 +87,7 @@ export default function EditorPage() {
       setSelectedElement(null);
       setShowPagesList(false);
       setShowUserManagement(false);
+      setShowIntegrationDocs(false);
       setIsDirty(false);
       clearHistory();
     } catch (err) {
@@ -218,17 +221,24 @@ export default function EditorPage() {
     if (item === 'pages') {
       setShowPagesList(true);
       setShowUserManagement(false);
+      setShowIntegrationDocs(false);
     } else if (item === 'settings') {
       setShowUserManagement(true);
       setShowPagesList(false);
+      setShowIntegrationDocs(false);
+    } else if (item === 'integration') {
+      setShowIntegrationDocs(true);
+      setShowPagesList(false);
+      setShowUserManagement(false);
     } else {
       setShowPagesList(false);
       setShowUserManagement(false);
+      setShowIntegrationDocs(false);
     }
   };
 
   // Determine what to show in the main area
-  const showHistory = activeTab === 'history' && currentPage && !showPagesList && !showUserManagement;
+  const showHistory = activeTab === 'history' && currentPage && !showPagesList && !showUserManagement && !showIntegrationDocs;
 
   return (
     <div className="editor-workspace">
@@ -273,6 +283,14 @@ export default function EditorPage() {
                 setActiveSidebar('pages');
               }}
             />
+          ) : showIntegrationDocs ? (
+            <IntegrationDocs
+              cmsUrl={process.env.REACT_APP_BACKEND_URL || window.location.origin}
+              onClose={() => {
+                setShowIntegrationDocs(false);
+                setActiveSidebar('pages');
+              }}
+            />
           ) : currentPage ? (
             <Canvas
               page={currentPage}
@@ -295,7 +313,7 @@ export default function EditorPage() {
         </div>
 
         {/* Right panel: Property Panel or History Panel */}
-        {currentPage && !showPagesList && !showUserManagement && (
+        {currentPage && !showPagesList && !showUserManagement && !showIntegrationDocs && (
           showHistory ? (
             <div className="right-panel custom-scrollbar">
               <HistoryPanel

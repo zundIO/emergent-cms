@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Backend API Testing for The Monolith CMS
-Tests all authentication and pages endpoints
+Backend API Testing for The Monolith CMS - Phase 4
+Tests schema import, multi-project support, public content delivery, and client library
 """
 import requests
 import sys
@@ -585,6 +585,297 @@ class MonolithCMSAPITester:
         
         return True
 
+    # ============================================================
+    # PHASE 4: SCHEMA IMPORT & PUBLIC API TESTS
+    # ============================================================
+
+    def test_projects_list(self):
+        """Test GET /api/projects - should have 'default' project"""
+        success, response = self.run_test(
+            "List Projects",
+            "GET",
+            "api/projects",
+            200,
+            headers={'Authorization': f'Bearer {self.admin_token}'}
+        )
+        if success:
+            projects = response if isinstance(response, list) else []
+            default_project = next((p for p in projects if p.get('project_id') == 'default'), None)
+            if default_project:
+                self.log_test("Default Project Exists", True, f"Found project: {default_project.get('name')}")
+                return True
+            else:
+                self.log_test("Default Project Exists", False, "Default project not found")
+        return False
+
+    def test_schema_import(self):
+        """Test POST /api/projects/import with test schema"""
+        test_schema = {
+            "project_name": "Test Project",
+            "pages": [
+                {
+                    "name": "Test Homepage",
+                    "slug": "/",
+                    "elements": [
+                        {
+                            "id": "test-hero-headline",
+                            "type": "heading",
+                            "tag": "h1",
+                            "label": "Test Hero Headline",
+                            "content": {"text": "Welcome to Test Project"},
+                            "style": {"classes": "text-5xl font-bold"},
+                            "children": []
+                        },
+                        {
+                            "id": "test-hero-description",
+                            "type": "paragraph",
+                            "tag": "p",
+                            "label": "Test Hero Description",
+                            "content": {"text": "This is a test description"},
+                            "style": {"classes": "text-lg text-gray-500"},
+                            "children": []
+                        }
+                    ]
+                },
+                {
+                    "name": "Test About",
+                    "slug": "/about",
+                    "elements": [
+                        {
+                            "id": "about-title",
+                            "type": "heading",
+                            "tag": "h1",
+                            "label": "About Title",
+                            "content": {"text": "About Us"},
+                            "style": {"classes": "text-4xl font-bold"},
+                            "children": []
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        success, response = self.run_test(
+            "Schema Import",
+            "POST",
+            "api/projects/import",
+            200,
+            data=test_schema,
+            headers={'Authorization': f'Bearer {self.admin_token}'}
+        )
+        
+        if success:
+            project_id = response.get('project_id')
+            pages_imported = response.get('pages_imported', 0)
+            self.log_test("Schema Import Details", True, f"Project ID: {project_id}, Pages: {pages_imported}")
+            return project_id
+        return None
+
+    def test_pages_after_import(self, project_id):
+        """Test GET /api/pages?project_id=test-project after import"""
+        success, response = self.run_test(
+            "List Pages After Import",
+            "GET",
+            f"api/pages?project_id={project_id}",
+            200,
+            headers={'Authorization': f'Bearer {self.admin_token}'}
+        )
+        
+        if success:
+            pages = response if isinstance(response, list) else []
+            self.log_test("Pages Count After Import", True, f"Found {len(pages)} pages")
+            return pages
+        return []
+
+    def test_public_content_empty(self, project_id):
+        """Test GET /api/public/{project_id}/content - should be empty until pages published"""
+        success, response = self.run_test(
+            "Public Content (Empty)",
+            "GET",
+            f"api/public/{project_id}/content",
+            200
+        )
+        
+        if success:
+            content = response if isinstance(response, dict) else {}
+            is_empty = len(content) == 0
+            self.log_test("Public Content Empty Check", is_empty, f"Content keys: {list(content.keys())}")
+            return True
+        return False
+
+    def test_publish_page_and_content(self, project_id, pages):
+        """Publish a page and test that content is returned"""
+        if not pages:
+            self.log_test("Publish Page", False, "No pages to publish")
+            return False
+            
+        page_id = pages[0].get('_id')
+        if not page_id:
+            self.log_test("Publish Page", False, "No page ID found")
+            return False
+            
+        # Publish the page
+        success, response = self.run_test(
+            "Publish Page",
+            "PUT",
+            f"api/pages/{page_id}/status",
+            200,
+            data={"status": "published"},
+            headers={'Authorization': f'Bearer {self.admin_token}'}
+        )
+        
+        if not success:
+            return False
+            
+        # Now test that public content returns the published content
+        success, response = self.run_test(
+            "Public Content (After Publish)",
+            "GET",
+            f"api/public/{project_id}/content",
+            200
+        )
+        
+        if success:
+            content = response if isinstance(response, dict) else {}
+            has_content = len(content) > 0
+            self.log_test("Public Content Has Data", has_content, f"Content keys: {list(content.keys())}")
+            return has_content
+        return False
+
+    def test_client_js(self):
+        """Test GET /api/client.js serves JavaScript client library"""
+        url = f"{self.base_url}/api/client.js"
+        try:
+            response = requests.get(url, timeout=10)
+            success = response.status_code == 200
+            
+            if success:
+                is_js = 'MonolithCMS' in response.text
+                self.log_test("Client.js Library", True, f"Response length: {len(response.text)}")
+                self.log_test("Client.js Content Check", is_js, f"Contains MonolithCMS: {is_js}")
+                return is_js
+            else:
+                self.log_test("Client.js Library", False, f"Status: {response.status_code}")
+                return False
+        except Exception as e:
+            self.log_test("Client.js Library", False, f"Exception: {str(e)}")
+            return False
+
+    def test_public_pages_by_project(self, project_id):
+        """Test GET /api/public/{project_id}/pages returns published pages"""
+        success, response = self.run_test(
+            "Public Pages by Project",
+            "GET",
+            f"api/public/{project_id}/pages",
+            200
+        )
+        
+        if success:
+            pages = response if isinstance(response, list) else []
+            self.log_test("Public Pages by Project Count", True, f"Found {len(pages)} published pages")
+            return len(pages) > 0
+        return False
+
+    def test_smart_merge_reimport(self, project_id):
+        """Test re-importing same schema preserves CMS edits (smart merge)"""
+        # Get the pages first
+        success, pages = self.run_test(
+            "Get Pages for Smart Merge Test",
+            "GET",
+            f"api/pages?project_id={project_id}",
+            200,
+            headers={'Authorization': f'Bearer {self.admin_token}'}
+        )
+        
+        if not success or not pages:
+            self.log_test("Smart Merge - Get Pages", False, "Could not get pages")
+            return False
+            
+        page_id = pages[0].get('_id')
+        
+        # Update content via CMS
+        success, response = self.run_test(
+            "Smart Merge - Update Content",
+            "PUT",
+            f"api/pages/{page_id}/content",
+            200,
+            data={
+                "element_id": "test-hero-headline",
+                "content": {"text": "EDITED BY CMS - This should be preserved"}
+            },
+            headers={'Authorization': f'Bearer {self.admin_token}'}
+        )
+        
+        if not success:
+            self.log_test("Smart Merge - Content Update", False, "Could not update content")
+            return False
+            
+        # Now re-import the same schema
+        test_schema = {
+            "project_name": "Test Project",  # Same project name
+            "pages": [
+                {
+                    "name": "Test Homepage",
+                    "slug": "/",
+                    "elements": [
+                        {
+                            "id": "test-hero-headline",
+                            "type": "heading",
+                            "tag": "h1",
+                            "label": "Test Hero Headline",
+                            "content": {"text": "Original Schema Text"},  # This should NOT overwrite CMS edit
+                            "style": {"classes": "text-6xl font-bold"},  # Style should update
+                            "children": []
+                        }
+                    ]
+                }
+            ]
+        }
+        
+        success, response = self.run_test(
+            "Smart Merge - Re-import Schema",
+            "POST",
+            "api/projects/import",
+            200,
+            data=test_schema,
+            headers={'Authorization': f'Bearer {self.admin_token}'}
+        )
+        
+        if not success:
+            return False
+            
+        # Check that CMS content was preserved
+        success, page_data = self.run_test(
+            "Smart Merge - Get Updated Page",
+            "GET",
+            f"api/pages/{page_id}",
+            200,
+            headers={'Authorization': f'Bearer {self.admin_token}'}
+        )
+        
+        if success:
+            # Find the element and check its content
+            elements = page_data.get('elements', [])
+            hero_element = next((el for el in elements if el.get('id') == 'test-hero-headline'), None)
+            
+            if hero_element:
+                content_text = hero_element.get('content', {}).get('text', '')
+                style_classes = hero_element.get('style', {}).get('classes', '')
+                
+                # Content should be preserved (CMS edit)
+                content_preserved = "EDITED BY CMS" in content_text
+                # Style should be updated (from schema)
+                style_updated = "text-6xl" in style_classes
+                
+                self.log_test("Smart Merge - Content Preserved", content_preserved, f"Text: {content_text}")
+                self.log_test("Smart Merge - Style Updated", style_updated, f"Classes: {style_classes}")
+                
+                return content_preserved and style_updated
+            else:
+                self.log_test("Smart Merge - Element Not Found", False, "Could not find test element")
+        
+        return False
+
     def print_summary(self):
         """Print test summary"""
         print(f"\n📊 Test Summary:")
@@ -597,6 +888,22 @@ class MonolithCMSAPITester:
             for result in self.test_results:
                 if not result['success']:
                     print(f"   - {result['test']}: {result['details']}")
+        
+        # Phase 4 Tests
+        print("\n" + "=" * 50)
+        print("🚀 PHASE 4: SCHEMA IMPORT & PUBLIC API TESTS")
+        print("=" * 50)
+        
+        self.test_projects_list()
+        project_id = self.test_schema_import()
+        if project_id:
+            pages = self.test_pages_after_import(project_id)
+            self.test_public_content_empty(project_id)
+            self.test_publish_page_and_content(project_id, pages)
+            self.test_public_pages_by_project(project_id)
+            self.test_smart_merge_reimport(project_id)
+        
+        self.test_client_js()
         
         return self.tests_passed == self.tests_run
 
