@@ -1,26 +1,26 @@
 [
   {
-    "content": "Phase 1+2: Build complete CMS backend (Auth + Pages CRUD + Content API)",
+    "content": "Phase 3: Backend - Add page version history endpoints + user management endpoints",
     "status": "completed"
   },
   {
-    "content": "Phase 1+2: Get design guidelines from design agent",
+    "content": "Phase 3: Frontend - Undo/Redo with keyboard shortcuts (Ctrl+Z/Y)",
     "status": "completed"
   },
   {
-    "content": "Phase 1+2: Build complete CMS frontend (Editor UI, Canvas, Property Panel, Auth)",
+    "content": "Phase 3: Frontend - History tab with version list + restore",
     "status": "completed"
   },
   {
-    "content": "Phase 1+2: All user stories covered in Development",
+    "content": "Phase 3: Frontend - Admin User Management panel",
     "status": "completed"
   },
   {
-    "content": "Phase 1+2: End to End Testing using Testing Agent",
-    "status": "completed"
+    "content": "Phase 3: End to End Testing",
+    "status": "in_progress"
   },
   {
-    "content": "Phase 1+2: Fix all bugs from testing (deselection bug fixed)",
-    "status": "completed"
+    "content": "Phase 3: Fix all bugs from testing",
+    "status": "pending"
   }
 ]

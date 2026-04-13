@@ -46,6 +46,8 @@ class MonolithCMSAPITester:
                 response = requests.post(url, json=data, headers=test_headers, timeout=10)
             elif method == 'PUT':
                 response = requests.put(url, json=data, headers=test_headers, timeout=10)
+            elif method == 'DELETE':
+                response = requests.delete(url, headers=test_headers, timeout=10)
 
             success = response.status_code == expected_status
             details = f"Expected {expected_status}, got {response.status_code}"
@@ -298,9 +300,233 @@ class MonolithCMSAPITester:
         )
         return success
 
+    # ============================================================
+    # PHASE 3 TESTS: USER MANAGEMENT
+    # ============================================================
+
+    def test_list_users(self):
+        """Test list users endpoint (admin only)"""
+        print("\n🔍 Testing List Users (Admin Only)...")
+        if not self.admin_token:
+            self.log_test("List Users", False, "No admin token available")
+            return False
+        
+        success, response = self.run_test(
+            "List Users",
+            "GET",
+            "api/users",
+            200,
+            headers={"Authorization": f"Bearer {self.admin_token}"}
+        )
+        
+        if success and isinstance(response, list):
+            print(f"   Found {len(response)} users")
+            # Store user IDs for further testing
+            self.test_users = response
+            return True
+        return success
+
+    def test_list_users_as_editor(self):
+        """Test list users endpoint as editor (should fail)"""
+        print("\n🔍 Testing List Users as Editor (Should Fail)...")
+        if not self.editor_token:
+            self.log_test("List Users as Editor", False, "No editor token available")
+            return False
+        
+        success, response = self.run_test(
+            "List Users as Editor (403 Expected)",
+            "GET",
+            "api/users",
+            403,
+            headers={"Authorization": f"Bearer {self.editor_token}"}
+        )
+        return success
+
+    def test_create_user(self):
+        """Test create user endpoint"""
+        print("\n🔍 Testing Create User...")
+        if not self.admin_token:
+            self.log_test("Create User", False, "No admin token available")
+            return False
+        
+        test_email = f"test.user.{datetime.now().strftime('%H%M%S')}@monolith.cms"
+        success, response = self.run_test(
+            "Create User",
+            "POST",
+            "api/auth/register",
+            200,
+            data={
+                "email": test_email,
+                "password": "testpass123",
+                "name": "Test User",
+                "role": "editor"
+            },
+            headers={"Authorization": f"Bearer {self.admin_token}"}
+        )
+        
+        if success and 'id' in response:
+            self.created_user_id = response['id']
+            self.created_user_email = test_email
+            print(f"   Created user ID: {self.created_user_id}")
+            return True
+        return success
+
+    def test_update_user(self):
+        """Test update user endpoint"""
+        print("\n🔍 Testing Update User...")
+        if not self.admin_token or not hasattr(self, 'created_user_id'):
+            self.log_test("Update User", False, "No admin token or created user ID available")
+            return False
+        
+        success, response = self.run_test(
+            "Update User Name and Role",
+            "PUT",
+            f"api/users/{self.created_user_id}",
+            200,
+            data={
+                "name": "Updated Test User",
+                "role": "admin"
+            },
+            headers={"Authorization": f"Bearer {self.admin_token}"}
+        )
+        return success
+
+    def test_change_user_password(self):
+        """Test change user password endpoint"""
+        print("\n🔍 Testing Change User Password...")
+        if not self.admin_token or not hasattr(self, 'created_user_id'):
+            self.log_test("Change User Password", False, "No admin token or created user ID available")
+            return False
+        
+        success, response = self.run_test(
+            "Change User Password",
+            "PUT",
+            f"api/users/{self.created_user_id}/password",
+            200,
+            data={"new_password": "newpassword123"},
+            headers={"Authorization": f"Bearer {self.admin_token}"}
+        )
+        return success
+
+    def test_disable_user(self):
+        """Test disable user (set is_active=false)"""
+        print("\n🔍 Testing Disable User...")
+        if not self.admin_token or not hasattr(self, 'created_user_id'):
+            self.log_test("Disable User", False, "No admin token or created user ID available")
+            return False
+        
+        success, response = self.run_test(
+            "Disable User",
+            "PUT",
+            f"api/users/{self.created_user_id}",
+            200,
+            data={"is_active": False},
+            headers={"Authorization": f"Bearer {self.admin_token}"}
+        )
+        return success
+
+    def test_disabled_user_login(self):
+        """Test that disabled user cannot login"""
+        print("\n🔍 Testing Disabled User Login (Should Fail)...")
+        if not hasattr(self, 'created_user_email'):
+            self.log_test("Disabled User Login", False, "No created user email available")
+            return False
+        
+        success, response = self.run_test(
+            "Disabled User Login (403 Expected)",
+            "POST",
+            "api/auth/login",
+            403,
+            data={"email": self.created_user_email, "password": "newpassword123"}
+        )
+        return success
+
+    def test_delete_user(self):
+        """Test delete user endpoint"""
+        print("\n🔍 Testing Delete User...")
+        if not self.admin_token or not hasattr(self, 'created_user_id'):
+            self.log_test("Delete User", False, "No admin token or created user ID available")
+            return False
+        
+        success, response = self.run_test(
+            "Delete User",
+            "DELETE",
+            f"api/users/{self.created_user_id}",
+            200,
+            headers={"Authorization": f"Bearer {self.admin_token}"}
+        )
+        return success
+
+    # ============================================================
+    # PHASE 3 TESTS: VERSION HISTORY
+    # ============================================================
+
+    def test_list_page_versions(self):
+        """Test list page versions endpoint"""
+        print("\n🔍 Testing List Page Versions...")
+        if not self.admin_token or not hasattr(self, 'homepage_id'):
+            self.log_test("List Page Versions", False, "No admin token or homepage ID available")
+            return False
+        
+        success, response = self.run_test(
+            "List Page Versions",
+            "GET",
+            f"api/pages/{self.homepage_id}/versions",
+            200,
+            headers={"Authorization": f"Bearer {self.admin_token}"}
+        )
+        
+        if success and isinstance(response, list):
+            print(f"   Found {len(response)} versions")
+            if len(response) > 0:
+                self.latest_version = response[0]['version_number']
+                print(f"   Latest version: {self.latest_version}")
+            return True
+        return success
+
+    def test_get_page_version(self):
+        """Test get specific page version"""
+        print("\n🔍 Testing Get Page Version...")
+        if not self.admin_token or not hasattr(self, 'homepage_id') or not hasattr(self, 'latest_version'):
+            self.log_test("Get Page Version", False, "No admin token, homepage ID, or version available")
+            return False
+        
+        success, response = self.run_test(
+            f"Get Page Version {self.latest_version}",
+            "GET",
+            f"api/pages/{self.homepage_id}/versions/{self.latest_version}",
+            200,
+            headers={"Authorization": f"Bearer {self.admin_token}"}
+        )
+        
+        if success and 'elements' in response:
+            print(f"   Version has {len(response.get('elements', []))} elements")
+            return True
+        return success
+
+    def test_restore_page_version(self):
+        """Test restore page to previous version"""
+        print("\n🔍 Testing Restore Page Version...")
+        if not self.admin_token or not hasattr(self, 'homepage_id') or not hasattr(self, 'latest_version'):
+            self.log_test("Restore Page Version", False, "No admin token, homepage ID, or version available")
+            return False
+        
+        success, response = self.run_test(
+            f"Restore Page to Version {self.latest_version}",
+            "POST",
+            f"api/pages/{self.homepage_id}/versions/{self.latest_version}/restore",
+            200,
+            headers={"Authorization": f"Bearer {self.admin_token}"}
+        )
+        
+        if success and 'elements' in response:
+            print(f"   Restored page has {len(response.get('elements', []))} elements")
+            return True
+        return success
+
     def run_all_tests(self):
         """Run all tests in sequence"""
-        print("🚀 Starting Monolith CMS Backend API Tests")
+        print("🚀 Starting Monolith CMS Backend API Tests - Phase 3")
         print(f"Testing against: {self.base_url}")
         
         # Health check
@@ -331,6 +557,31 @@ class MonolithCMSAPITester:
         # Public endpoints
         self.test_public_pages()
         self.test_public_page_by_slug()
+        
+        # PHASE 3: User Management Tests
+        print("\n" + "="*50)
+        print("🔐 PHASE 3: USER MANAGEMENT TESTS")
+        print("="*50)
+        
+        self.test_list_users()
+        if editor_login_ok:
+            self.test_list_users_as_editor()
+        
+        if self.test_create_user():
+            self.test_update_user()
+            self.test_change_user_password()
+            self.test_disable_user()
+            self.test_disabled_user_login()
+            self.test_delete_user()
+        
+        # PHASE 3: Version History Tests
+        print("\n" + "="*50)
+        print("📚 PHASE 3: VERSION HISTORY TESTS")
+        print("="*50)
+        
+        if self.test_list_page_versions():
+            self.test_get_page_version()
+            self.test_restore_page_version()
         
         return True
 

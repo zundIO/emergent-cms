@@ -52,4 +52,20 @@ export const pagesAPI = {
     api.put(`/api/pages/${pageId}/status`, { status }),
 };
 
+// Page Versions / History
+export const versionsAPI = {
+  list: (pageId) => api.get(`/api/pages/${pageId}/versions`),
+  get: (pageId, versionNumber) => api.get(`/api/pages/${pageId}/versions/${versionNumber}`),
+  restore: (pageId, versionNumber) => api.post(`/api/pages/${pageId}/versions/${versionNumber}/restore`),
+};
+
+// Users (Admin only)
+export const usersAPI = {
+  list: () => api.get('/api/users'),
+  create: (data) => api.post('/api/auth/register', data),
+  update: (userId, data) => api.put(`/api/users/${userId}`, data),
+  changePassword: (userId, newPassword) => api.put(`/api/users/${userId}/password`, { new_password: newPassword }),
+  delete: (userId) => api.delete(`/api/users/${userId}`),
+};
+
 export default api;

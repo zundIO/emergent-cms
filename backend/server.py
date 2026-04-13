@@ -6,14 +6,15 @@ import os
 import json
 import hashlib
 import secrets
+import copy
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Depends, Header, Body
+from fastapi import FastAPI, HTTPException, Depends, Header, Body, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, EmailStr
-from pymongo import MongoClient
+from pymongo import MongoClient, DESCENDING
 from bson import ObjectId
 import jwt
 import bcrypt
@@ -35,6 +36,7 @@ db = client[DB_NAME]
 users_col = db["users"]
 pages_col = db["pages"]
 projects_col = db["projects"]
+page_versions_col = db["page_versions"]
 
 
 # ============================================================
@@ -99,6 +101,12 @@ async def get_current_user(authorization: Optional[str] = Header(None)):
     return serialize_doc(user)
 
 
+async def require_admin(current_user: dict = Depends(get_current_user)):
+    if current_user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+
 async def get_optional_user(authorization: Optional[str] = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
         return None
@@ -109,6 +117,21 @@ async def get_optional_user(authorization: Optional[str] = Header(None)):
         return serialize_doc(user) if user else None
     except Exception:
         return None
+
+
+def create_page_version(page_id: str, elements: list, user_email: str, action: str = "save"):
+    """Create a version snapshot for a page"""
+    version_count = page_versions_col.count_documents({"page_id": page_id})
+    version = {
+        "page_id": page_id,
+        "version_number": version_count + 1,
+        "elements": copy.deepcopy(elements),
+        "created_at": datetime.now(timezone.utc),
+        "created_by": user_email,
+        "action": action,  # "save", "publish", "restore"
+    }
+    page_versions_col.insert_one(version)
+    return version_count + 1
 
 
 # ============================================================
@@ -124,6 +147,14 @@ class RegisterRequest(BaseModel):
     password: str
     name: str
     role: str = "editor"
+
+class UpdateUserRequest(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class ChangePasswordRequest(BaseModel):
+    new_password: str
 
 class PageContentUpdate(BaseModel):
     element_id: str
@@ -509,13 +540,13 @@ def get_demo_about_page():
 
 def seed_database():
     """Seed with default admin and demo pages if empty"""
-    # Create default admin user
     if users_col.count_documents({}) == 0:
         admin_user = {
             "email": "admin@monolith.cms",
             "password_hash": hash_password("admin123"),
             "name": "Admin",
             "role": "admin",
+            "is_active": True,
             "created_at": datetime.now(timezone.utc)
         }
         editor_user = {
@@ -523,12 +554,12 @@ def seed_database():
             "password_hash": hash_password("editor123"),
             "name": "Editor",
             "role": "editor",
+            "is_active": True,
             "created_at": datetime.now(timezone.utc)
         }
         users_col.insert_many([admin_user, editor_user])
         print("Seeded users: admin@monolith.cms / admin123, editor@monolith.cms / editor123")
 
-    # Create default project
     if projects_col.count_documents({}) == 0:
         projects_col.insert_one({
             "name": "The Monolith",
@@ -537,7 +568,6 @@ def seed_database():
             "created_at": datetime.now(timezone.utc)
         })
 
-    # Create demo pages
     if pages_col.count_documents({}) == 0:
         pages_col.insert_one(get_demo_homepage())
         pages_col.insert_one(get_demo_about_page())
@@ -550,12 +580,11 @@ def seed_database():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     users_col.create_index("email", unique=True)
     pages_col.create_index([("project_id", 1), ("slug", 1)])
+    page_versions_col.create_index([("page_id", 1), ("version_number", DESCENDING)])
     seed_database()
     yield
-    # Shutdown
     client.close()
 
 app = FastAPI(title="The Monolith CMS", lifespan=lifespan)
@@ -578,6 +607,8 @@ async def login(req: LoginRequest):
     user = users_col.find_one({"email": req.email})
     if not user or not verify_password(req.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    if user.get("is_active") is False:
+        raise HTTPException(status_code=403, detail="Account is disabled")
     token = create_token(str(user["_id"]), user["email"], user["role"])
     return {
         "token": token,
@@ -591,19 +622,15 @@ async def login(req: LoginRequest):
 
 
 @app.post("/api/auth/register")
-async def register(req: RegisterRequest, current_user: dict = Depends(get_current_user)):
-    # Only admins can register new users
-    if current_user.get("role") != "admin":
-        raise HTTPException(status_code=403, detail="Only admins can create users")
-    
+async def register(req: RegisterRequest, current_user: dict = Depends(require_admin)):
     if users_col.find_one({"email": req.email}):
         raise HTTPException(status_code=400, detail="Email already exists")
-    
     new_user = {
         "email": req.email,
         "password_hash": hash_password(req.password),
         "name": req.name,
         "role": req.role,
+        "is_active": True,
         "created_at": datetime.now(timezone.utc)
     }
     result = users_col.insert_one(new_user)
@@ -618,6 +645,81 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         "name": current_user.get("name", ""),
         "role": current_user["role"]
     }
+
+
+# ============================================================
+# USER MANAGEMENT ENDPOINTS (Admin only)
+# ============================================================
+
+@app.get("/api/users")
+async def list_users(current_user: dict = Depends(require_admin)):
+    users = list(users_col.find({}))
+    return [serialize_doc({
+        "_id": u["_id"],
+        "email": u["email"],
+        "name": u.get("name", ""),
+        "role": u["role"],
+        "is_active": u.get("is_active", True),
+        "created_at": u.get("created_at"),
+    }) for u in users]
+
+
+@app.put("/api/users/{user_id}")
+async def update_user(user_id: str, body: UpdateUserRequest, current_user: dict = Depends(require_admin)):
+    user = users_col.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # Prevent self-deactivation or role-change for the last admin
+    if str(user["_id"]) == current_user["_id"]:
+        if body.is_active is False:
+            raise HTTPException(status_code=400, detail="Cannot deactivate your own account")
+        if body.role and body.role != "admin":
+            admin_count = users_col.count_documents({"role": "admin", "is_active": {"$ne": False}})
+            if admin_count <= 1:
+                raise HTTPException(status_code=400, detail="Cannot change role: you are the last admin")
+
+    update_fields = {}
+    if body.name is not None:
+        update_fields["name"] = body.name
+    if body.role is not None and body.role in ["admin", "editor"]:
+        update_fields["role"] = body.role
+    if body.is_active is not None:
+        update_fields["is_active"] = body.is_active
+
+    if update_fields:
+        users_col.update_one({"_id": ObjectId(user_id)}, {"$set": update_fields})
+
+    updated = users_col.find_one({"_id": ObjectId(user_id)})
+    return serialize_doc({
+        "_id": updated["_id"],
+        "email": updated["email"],
+        "name": updated.get("name", ""),
+        "role": updated["role"],
+        "is_active": updated.get("is_active", True),
+    })
+
+
+@app.put("/api/users/{user_id}/password")
+async def change_user_password(user_id: str, body: ChangePasswordRequest, current_user: dict = Depends(require_admin)):
+    user = users_col.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    users_col.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": {"password_hash": hash_password(body.new_password)}}
+    )
+    return {"success": True}
+
+
+@app.delete("/api/users/{user_id}")
+async def delete_user(user_id: str, current_user: dict = Depends(require_admin)):
+    if user_id == current_user["_id"]:
+        raise HTTPException(status_code=400, detail="Cannot delete your own account")
+    result = users_col.delete_one({"_id": ObjectId(user_id)})
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {"success": True}
 
 
 # ============================================================
@@ -660,20 +762,20 @@ async def update_page_content(page_id: str, update: PageContentUpdate, current_u
     page = pages_col.find_one({"_id": ObjectId(page_id)})
     if not page:
         raise HTTPException(status_code=404, detail="Page not found")
-    
+
     elements = page.get("elements", [])
     updated = update_element_content(elements, update.element_id, update.content)
-    
+
     if not updated:
         raise HTTPException(status_code=404, detail=f"Element {update.element_id} not found")
-    
+
     pages_col.update_one(
         {"_id": ObjectId(page_id)},
         {
             "$set": {
                 "elements": elements,
                 "updated_at": datetime.now(timezone.utc),
-                "status": "draft"  # Any edit reverts to draft
+                "status": "draft"
             }
         }
     )
@@ -682,15 +784,18 @@ async def update_page_content(page_id: str, update: PageContentUpdate, current_u
 
 @app.put("/api/pages/{page_id}/content/bulk")
 async def update_page_content_bulk(page_id: str, body: PageBulkContentUpdate, current_user: dict = Depends(get_current_user)):
-    """Bulk update multiple elements' content"""
+    """Bulk update multiple elements' content and create a version snapshot"""
     page = pages_col.find_one({"_id": ObjectId(page_id)})
     if not page:
         raise HTTPException(status_code=404, detail="Page not found")
-    
+
+    # Snapshot BEFORE applying changes
+    create_page_version(page_id, page.get("elements", []), current_user.get("email", "unknown"), "save")
+
     elements = page.get("elements", [])
     for upd in body.updates:
         update_element_content(elements, upd.element_id, upd.content)
-    
+
     pages_col.update_one(
         {"_id": ObjectId(page_id)},
         {
@@ -708,7 +813,6 @@ def update_element_content(elements, element_id, new_content):
     """Recursively find element by ID and update only its content"""
     for el in elements:
         if el.get("id") == element_id:
-            # Only update content fields, never style/type/tag
             el["content"] = {**el.get("content", {}), **new_content}
             return True
         if el.get("children"):
@@ -722,21 +826,21 @@ async def update_page_status(page_id: str, body: PageStatusUpdate, current_user:
     """Update page status (draft/published)"""
     if body.status not in ["draft", "published"]:
         raise HTTPException(status_code=400, detail="Status must be 'draft' or 'published'")
-    
+
     page = pages_col.find_one({"_id": ObjectId(page_id)})
     if not page:
         raise HTTPException(status_code=404, detail="Page not found")
-    
+
     update_fields = {
         "status": body.status,
         "updated_at": datetime.now(timezone.utc)
     }
-    
+
     if body.status == "published":
         update_fields["published_at"] = datetime.now(timezone.utc)
-        # Store a published snapshot
         update_fields["published_elements"] = page.get("elements", [])
-    
+        create_page_version(page_id, page.get("elements", []), current_user.get("email", "unknown"), "publish")
+
     pages_col.update_one(
         {"_id": ObjectId(page_id)},
         {"$set": update_fields}
@@ -745,12 +849,70 @@ async def update_page_status(page_id: str, body: PageStatusUpdate, current_user:
 
 
 # ============================================================
+# PAGE VERSION HISTORY ENDPOINTS
+# ============================================================
+
+@app.get("/api/pages/{page_id}/versions")
+async def list_page_versions(page_id: str, current_user: dict = Depends(get_current_user)):
+    """List all version snapshots for a page"""
+    versions = list(page_versions_col.find(
+        {"page_id": page_id},
+        {"elements": 0}  # Exclude full element tree for listing
+    ).sort("version_number", DESCENDING).limit(50))
+    return [serialize_doc(v) for v in versions]
+
+
+@app.get("/api/pages/{page_id}/versions/{version_number}")
+async def get_page_version(page_id: str, version_number: int, current_user: dict = Depends(get_current_user)):
+    """Get a specific version snapshot (includes elements)"""
+    version = page_versions_col.find_one({
+        "page_id": page_id,
+        "version_number": version_number
+    })
+    if not version:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return serialize_doc(version)
+
+
+@app.post("/api/pages/{page_id}/versions/{version_number}/restore")
+async def restore_page_version(page_id: str, version_number: int, current_user: dict = Depends(get_current_user)):
+    """Restore a page to a previous version"""
+    version = page_versions_col.find_one({
+        "page_id": page_id,
+        "version_number": version_number
+    })
+    if not version:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    page = pages_col.find_one({"_id": ObjectId(page_id)})
+    if not page:
+        raise HTTPException(status_code=404, detail="Page not found")
+
+    # Snapshot current state before restore
+    create_page_version(page_id, page.get("elements", []), current_user.get("email", "unknown"), "restore")
+
+    # Restore elements from version
+    pages_col.update_one(
+        {"_id": ObjectId(page_id)},
+        {
+            "$set": {
+                "elements": version["elements"],
+                "updated_at": datetime.now(timezone.utc),
+                "status": "draft"
+            }
+        }
+    )
+
+    updated_page = pages_col.find_one({"_id": ObjectId(page_id)})
+    return serialize_doc(updated_page)
+
+
+# ============================================================
 # PUBLIC API (for website consumption)
 # ============================================================
 
 @app.get("/api/public/pages")
 async def public_list_pages():
-    """Public endpoint - returns published pages only"""
     pages = list(pages_col.find({"project_id": "default", "status": "published"}))
     return [serialize_doc({
         "_id": p["_id"],
@@ -763,7 +925,6 @@ async def public_list_pages():
 
 @app.get("/api/public/pages/{slug:path}")
 async def public_get_page(slug: str):
-    """Public endpoint - returns a single published page by slug"""
     if not slug.startswith("/"):
         slug = "/" + slug
     page = pages_col.find_one({"slug": slug, "status": "published"})

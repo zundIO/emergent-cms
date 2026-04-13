@@ -1,5 +1,5 @@
 import React from 'react';
-import { Monitor, Tablet, Smartphone, TabletSmartphone } from 'lucide-react';
+import { Monitor, Tablet, Smartphone, TabletSmartphone, Undo2, Redo2 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '../../components/ui/tooltip';
 
 const TopBar = ({
@@ -15,6 +15,10 @@ const TopBar = ({
   isDirty,
   user,
   onLogout,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
 }) => {
   const devices = [
     { id: 'desktop', icon: Monitor, label: 'Desktop' },
@@ -76,6 +80,52 @@ const TopBar = ({
                 title="Unsaved changes"
               />
             )}
+          </div>
+        )}
+
+        {/* Undo/Redo buttons */}
+        {currentPage && (
+          <div className="flex items-center gap-0.5 mr-4" data-testid="undo-redo-controls">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  data-testid="undo-button"
+                  onClick={onUndo}
+                  disabled={!canUndo}
+                  className="w-8 h-8 rounded-[4px] grid place-items-center transition-colors duration-150"
+                  style={{
+                    color: canUndo ? 'var(--on-surface)' : 'var(--muted-2)',
+                    opacity: canUndo ? 1 : 0.4,
+                    cursor: canUndo ? 'pointer' : 'not-allowed',
+                  }}
+                >
+                  <Undo2 size={15} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>Undo (Ctrl+Z)</p>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  data-testid="redo-button"
+                  onClick={onRedo}
+                  disabled={!canRedo}
+                  className="w-8 h-8 rounded-[4px] grid place-items-center transition-colors duration-150"
+                  style={{
+                    color: canRedo ? 'var(--on-surface)' : 'var(--muted-2)',
+                    opacity: canRedo ? 1 : 0.4,
+                    cursor: canRedo ? 'pointer' : 'not-allowed',
+                  }}
+                >
+                  <Redo2 size={15} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                <p>Redo (Ctrl+Y)</p>
+              </TooltipContent>
+            </Tooltip>
           </div>
         )}
 

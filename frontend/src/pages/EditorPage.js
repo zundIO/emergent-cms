@@ -2,11 +2,14 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { pagesAPI } from '../lib/api';
+import useUndoRedo from '../hooks/useUndoRedo';
 import TopBar from '../components/editor/TopBar';
 import LeftSidebar from '../components/editor/LeftSidebar';
 import Canvas from '../components/editor/Canvas';
 import PropertyPanel from '../components/editor/PropertyPanel';
 import PagesList from '../components/editor/PagesList';
+import HistoryPanel from '../components/editor/HistoryPanel';
+import UserManagement from '../components/editor/UserManagement';
 import '../App.css';
 
 export default function EditorPage() {
@@ -18,17 +21,20 @@ export default function EditorPage() {
   const [deviceMode, setDeviceMode] = useState('desktop');
   const [activeTab, setActiveTab] = useState('structure');
   const [showPagesList, setShowPagesList] = useState(false);
+  const [showUserManagement, setShowUserManagement] = useState(false);
   const [activeSidebar, setActiveSidebar] = useState('pages');
   const [isDirty, setIsDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
+
+  // Undo/Redo system
+  const { pushState, undo, redo, canUndo, canRedo, clear: clearHistory } = useUndoRedo(50);
 
   // Load pages list
   const loadPages = useCallback(async () => {
     try {
       const res = await pagesAPI.list();
       setPages(res.data);
-      // Auto-open first page if none selected
       if (res.data.length > 0 && !currentPage) {
         const firstPage = await pagesAPI.get(res.data[0]._id);
         setCurrentPage(firstPage.data);
@@ -42,6 +48,35 @@ export default function EditorPage() {
     loadPages();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Keyboard shortcuts for undo/redo
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Skip if user is typing in an input or textarea
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
+        return;
+      }
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const modKey = isMac ? e.metaKey : e.ctrlKey;
+
+      if (modKey && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      }
+      if (modKey && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+        e.preventDefault();
+        handleRedo();
+      }
+      // Save with Ctrl+S
+      if (modKey && e.key === 's') {
+        e.preventDefault();
+        handleSave();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }); // Re-register on every render to capture latest state
+
   // Open a specific page
   const openPage = async (pageId) => {
     try {
@@ -49,7 +84,9 @@ export default function EditorPage() {
       setCurrentPage(res.data);
       setSelectedElement(null);
       setShowPagesList(false);
+      setShowUserManagement(false);
       setIsDirty(false);
+      clearHistory();
     } catch (err) {
       console.error('Failed to open page:', err);
     }
@@ -64,7 +101,10 @@ export default function EditorPage() {
   const handleContentUpdate = async (elementId, newContent) => {
     if (!currentPage) return;
 
-    // Optimistic update - update local state immediately
+    // Push BEFORE state to undo stack
+    pushState(currentPage.elements);
+
+    // Optimistic update
     const updatedElements = updateElementInTree(
       [...currentPage.elements],
       elementId,
@@ -77,7 +117,6 @@ export default function EditorPage() {
       status: 'draft',
     }));
 
-    // Update selected element reference
     if (selectedElement && selectedElement.id === elementId) {
       setSelectedElement((prev) => ({
         ...prev,
@@ -88,19 +127,53 @@ export default function EditorPage() {
     setIsDirty(true);
   };
 
+  // Undo
+  const handleUndo = () => {
+    if (!currentPage || !canUndo) return;
+    const prevElements = undo(currentPage.elements);
+    if (prevElements) {
+      setCurrentPage((prev) => ({
+        ...prev,
+        elements: prevElements,
+        status: 'draft',
+      }));
+      // Update selected element if still exists
+      if (selectedElement) {
+        const found = findElementById(prevElements, selectedElement.id);
+        setSelectedElement(found || null);
+      }
+      setIsDirty(true);
+    }
+  };
+
+  // Redo
+  const handleRedo = () => {
+    if (!currentPage || !canRedo) return;
+    const nextElements = redo(currentPage.elements);
+    if (nextElements) {
+      setCurrentPage((prev) => ({
+        ...prev,
+        elements: nextElements,
+        status: 'draft',
+      }));
+      if (selectedElement) {
+        const found = findElementById(nextElements, selectedElement.id);
+        setSelectedElement(found || null);
+      }
+      setIsDirty(true);
+    }
+  };
+
   // Save changes to backend
   const handleSave = async () => {
     if (!currentPage || !isDirty) return;
     setSaving(true);
     try {
-      // Collect all content from current page elements and send bulk update
       const updates = collectAllContent(currentPage.elements);
       await pagesAPI.updateContentBulk(currentPage._id, updates);
       setIsDirty(false);
-      // Reload page to sync status
       const res = await pagesAPI.get(currentPage._id);
       setCurrentPage(res.data);
-      // Refresh pages list
       loadPages();
     } catch (err) {
       console.error('Save failed:', err);
@@ -114,7 +187,6 @@ export default function EditorPage() {
     if (!currentPage) return;
     setPublishing(true);
     try {
-      // Save first if dirty
       if (isDirty) {
         const updates = collectAllContent(currentPage.elements);
         await pagesAPI.updateContentBulk(currentPage._id, updates);
@@ -131,20 +203,32 @@ export default function EditorPage() {
     }
   };
 
+  // Handle history version restore
+  const handleHistoryRestore = (restoredPage) => {
+    setCurrentPage(restoredPage);
+    setSelectedElement(null);
+    setIsDirty(false);
+    clearHistory();
+    loadPages();
+  };
+
   // Handle sidebar navigation
   const handleSidebarClick = (item) => {
     setActiveSidebar(item);
     if (item === 'pages') {
       setShowPagesList(true);
+      setShowUserManagement(false);
+    } else if (item === 'settings') {
+      setShowUserManagement(true);
+      setShowPagesList(false);
     } else {
       setShowPagesList(false);
+      setShowUserManagement(false);
     }
   };
 
-  // Deselect on canvas background click
-  const handleCanvasBackgroundClick = () => {
-    setSelectedElement(null);
-  };
+  // Determine what to show in the main area
+  const showHistory = activeTab === 'history' && currentPage && !showPagesList && !showUserManagement;
 
   return (
     <div className="editor-workspace">
@@ -161,12 +245,17 @@ export default function EditorPage() {
         isDirty={isDirty}
         user={user}
         onLogout={logout}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={handleUndo}
+        onRedo={handleRedo}
       />
 
       <div className="editor-main">
         <LeftSidebar
           activeSidebar={activeSidebar}
           onSidebarClick={handleSidebarClick}
+          isAdmin={user?.role === 'admin'}
         />
 
         <div className="canvas-area custom-scrollbar" onClick={() => setSelectedElement(null)}>
@@ -176,6 +265,13 @@ export default function EditorPage() {
               currentPageId={currentPage?._id}
               onOpenPage={openPage}
               onClose={() => setShowPagesList(false)}
+            />
+          ) : showUserManagement ? (
+            <UserManagement
+              onClose={() => {
+                setShowUserManagement(false);
+                setActiveSidebar('pages');
+              }}
             />
           ) : currentPage ? (
             <Canvas
@@ -198,12 +294,22 @@ export default function EditorPage() {
           )}
         </div>
 
-        {currentPage && !showPagesList && (
-          <PropertyPanel
-            selectedElement={selectedElement}
-            onContentUpdate={handleContentUpdate}
-            onDeselect={() => setSelectedElement(null)}
-          />
+        {/* Right panel: Property Panel or History Panel */}
+        {currentPage && !showPagesList && !showUserManagement && (
+          showHistory ? (
+            <div className="right-panel custom-scrollbar">
+              <HistoryPanel
+                pageId={currentPage._id}
+                onRestore={handleHistoryRestore}
+              />
+            </div>
+          ) : (
+            <PropertyPanel
+              selectedElement={selectedElement}
+              onContentUpdate={handleContentUpdate}
+              onDeselect={() => setSelectedElement(null)}
+            />
+          )
         )}
       </div>
     </div>
@@ -227,6 +333,18 @@ function updateElementInTree(elements, elementId, newContent) {
     }
     return el;
   });
+}
+
+// Utility: find element by ID in tree
+function findElementById(elements, elementId) {
+  for (const el of elements) {
+    if (el.id === elementId) return el;
+    if (el.children) {
+      const found = findElementById(el.children, elementId);
+      if (found) return found;
+    }
+  }
+  return null;
 }
 
 // Utility: collect all element contents for bulk update

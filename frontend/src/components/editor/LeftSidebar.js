@@ -7,18 +7,19 @@ import {
   Rocket,
   HelpCircle,
   Plus,
+  Users,
 } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '../../components/ui/tooltip';
 
-const sidebarItems = [
-  { id: 'pages', icon: FileText, label: 'Pages', enabled: true },
-  { id: 'collections', icon: Layers, label: 'Collections', enabled: false },
-  { id: 'assets', icon: Image, label: 'Assets', enabled: false },
-  { id: 'settings', icon: Settings, label: 'Settings', enabled: false },
-  { id: 'publishing', icon: Rocket, label: 'Publishing', enabled: false },
-];
+const LeftSidebar = ({ activeSidebar, onSidebarClick, isAdmin }) => {
+  const sidebarItems = [
+    { id: 'pages', icon: FileText, label: 'Pages', enabled: true },
+    { id: 'collections', icon: Layers, label: 'Collections', enabled: false },
+    { id: 'assets', icon: Image, label: 'Assets', enabled: false },
+    { id: 'settings', icon: isAdmin ? Users : Settings, label: isAdmin ? 'User Management' : 'Settings', enabled: isAdmin },
+    { id: 'publishing', icon: Rocket, label: 'Publishing', enabled: false },
+  ];
 
-const LeftSidebar = ({ activeSidebar, onSidebarClick }) => {
   return (
     <TooltipProvider delayDuration={200}>
       <div className="left-sidebar" data-testid="editor-left-rail">
