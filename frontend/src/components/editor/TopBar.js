@@ -1,9 +1,12 @@
-import React from 'react';
-import { Monitor, Tablet, Smartphone, TabletSmartphone, Undo2, Redo2 } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Monitor, Tablet, Smartphone, TabletSmartphone, Undo2, Redo2, ChevronDown, Globe } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '../../components/ui/tooltip';
 
 const TopBar = ({
   currentPage,
+  currentProject,
+  projects,
+  onProjectSwitch,
   deviceMode,
   setDeviceMode,
   activeTab,
@@ -20,6 +23,18 @@ const TopBar = ({
   onUndo,
   onRedo,
 }) => {
+  const [showProjectDropdown, setShowProjectDropdown] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowProjectDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
   const devices = [
     { id: 'desktop', icon: Monitor, label: 'Desktop' },
     { id: 'tablet', icon: Tablet, label: 'Tablet' },
@@ -48,6 +63,63 @@ const TopBar = ({
             </span>
           </div>
         </div>
+
+        {/* Project Switcher */}
+        {currentProject && projects.length > 0 && (
+          <div className="relative mr-4" ref={dropdownRef}>
+            <button
+              onClick={() => setShowProjectDropdown(!showProjectDropdown)}
+              data-testid="project-switcher-button"
+              className="flex items-center gap-2 px-3 py-1.5 rounded transition-colors"
+              style={{
+                backgroundColor: 'var(--elevated)',
+                color: 'var(--on-surface)',
+              }}
+            >
+              <Globe className="w-3.5 h-3.5" style={{ color: 'var(--primary)' }} />
+              <span className="text-xs font-medium">{currentProject.name}</span>
+              <ChevronDown className="w-3 h-3" style={{ color: 'var(--muted)' }} />
+            </button>
+
+            {showProjectDropdown && (
+              <div
+                className="absolute top-full left-0 mt-1 rounded-lg shadow-xl z-50 min-w-[200px]"
+                style={{
+                  backgroundColor: 'var(--elevated)',
+                  border: '1px solid var(--sunken)',
+                }}
+                data-testid="project-switcher-dropdown"
+              >
+                {projects.map((project) => (
+                  <button
+                    key={project.project_id}
+                    onClick={() => {
+                      onProjectSwitch(project);
+                      setShowProjectDropdown(false);
+                    }}
+                    data-testid={`project-option-${project.project_id}`}
+                    className="w-full px-4 py-2.5 text-left text-sm transition-colors flex items-center justify-between"
+                    style={{
+                      backgroundColor:
+                        currentProject.project_id === project.project_id
+                          ? 'var(--primary-dim)'
+                          : 'transparent',
+                      color: 'var(--on-surface)',
+                    }}
+                  >
+                    <span>{project.name}</span>
+                    {currentProject.project_id === project.project_id && (
+                      <span
+                        className="w-2 h-2 rounded-full"
+                        style={{ backgroundColor: 'var(--primary)' }}
+                      />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Page name + status */}
         {currentPage && (

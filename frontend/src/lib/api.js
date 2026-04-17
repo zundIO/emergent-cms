@@ -42,7 +42,7 @@ export const authAPI = {
 
 // Pages
 export const pagesAPI = {
-  list: () => api.get('/api/pages'),
+  list: (projectId = 'default') => api.get('/api/pages', { params: { project_id: projectId } }),
   get: (id) => api.get(`/api/pages/${id}`),
   updateContent: (pageId, elementId, content) =>
     api.put(`/api/pages/${pageId}/content`, { element_id: elementId, content }),

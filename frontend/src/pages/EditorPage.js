@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { pagesAPI } from '../lib/api';
+import { pagesAPI, projectsAPI } from '../lib/api';
 import useUndoRedo from '../hooks/useUndoRedo';
 import TopBar from '../components/editor/TopBar';
 import LeftSidebar from '../components/editor/LeftSidebar';
@@ -16,6 +16,8 @@ import '../App.css';
 export default function EditorPage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [projects, setProjects] = useState([]);
+  const [currentProject, setCurrentProject] = useState(null);
   const [pages, setPages] = useState([]);
   const [currentPage, setCurrentPage] = useState(null);
   const [selectedElement, setSelectedElement] = useState(null);
@@ -32,10 +34,24 @@ export default function EditorPage() {
   // Undo/Redo system
   const { pushState, undo, redo, canUndo, canRedo, clear: clearHistory } = useUndoRedo(50);
 
-  // Load pages list
-  const loadPages = useCallback(async () => {
+  // Load projects
+  const loadProjects = useCallback(async () => {
     try {
-      const res = await pagesAPI.list();
+      const res = await projectsAPI.list();
+      setProjects(res.data);
+      if (res.data.length > 0 && !currentProject) {
+        setCurrentProject(res.data[0]);
+      }
+    } catch (err) {
+      console.error('Failed to load projects:', err);
+    }
+  }, [currentProject]);
+
+  // Load pages list for current project
+  const loadPages = useCallback(async () => {
+    if (!currentProject) return;
+    try {
+      const res = await pagesAPI.list(currentProject.project_id);
       setPages(res.data);
       if (res.data.length > 0 && !currentPage) {
         const firstPage = await pagesAPI.get(res.data[0]._id);
@@ -44,11 +60,26 @@ export default function EditorPage() {
     } catch (err) {
       console.error('Failed to load pages:', err);
     }
-  }, [currentPage]);
+  }, [currentProject, currentPage]);
 
   useEffect(() => {
-    loadPages();
+    loadProjects();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (currentProject) {
+      loadPages();
+    }
+  }, [currentProject]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Handle project switch
+  const handleProjectSwitch = (project) => {
+    setCurrentProject(project);
+    setCurrentPage(null);
+    setSelectedElement(null);
+    setIsDirty(false);
+    clearHistory();
+  };
 
   // Keyboard shortcuts for undo/redo
   useEffect(() => {
@@ -244,6 +275,9 @@ export default function EditorPage() {
     <div className="editor-workspace">
       <TopBar
         currentPage={currentPage}
+        currentProject={currentProject}
+        projects={projects}
+        onProjectSwitch={handleProjectSwitch}
         deviceMode={deviceMode}
         setDeviceMode={setDeviceMode}
         activeTab={activeTab}

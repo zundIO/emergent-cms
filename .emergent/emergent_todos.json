@@ -1,22 +1,26 @@
 [
   {
-    "content": "Fix Emergent Anweisung: Make it one complete self-contained instruction block",
+    "content": "Backend: User-Model um 'project_access' Array erweitern und Seed-Daten anpassen",
     "status": "completed"
   },
   {
-    "content": "Integration Guide: Only visible to admins",
+    "content": "Backend: API-Endpoints anpassen (projects/pages Filter nach User-Zugriff, User-Management mit Projekt-Zuordnung)",
     "status": "completed"
   },
   {
-    "content": "Add Schema Import UI in the CMS (admin can import/upload schema)",
+    "content": "Frontend: User-Verwaltung erweitern (Projekt-Zuordnung mit Checkboxen bei Create/Edit)",
     "status": "completed"
   },
   {
-    "content": "Add timestamp-based smart merge (CMS edit vs. Emergent change comparison)",
+    "content": "Frontend: Projekt-Switcher in TopBar implementieren (Dropdown oben links)",
     "status": "completed"
   },
   {
-    "content": "End to End Testing",
+    "content": "Frontend: EditorPage für Projekt-Wechsel anpassen (State + Pages neu laden)",
+    "status": "completed"
+  },
+  {
+    "content": "Testen: Multi-Website-Management End-to-End testen",
     "status": "in_progress"
   }
 ]

@@ -14,11 +14,13 @@ import {
   ToggleRight,
   UserCog,
   Mail,
+  Globe,
 } from 'lucide-react';
-import { usersAPI } from '../../lib/api';
+import { usersAPI, projectsAPI } from '../../lib/api';
 
 const UserManagement = ({ onClose }) => {
   const [users, setUsers] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
@@ -33,6 +35,7 @@ const UserManagement = ({ onClose }) => {
     password: '',
     name: '',
     role: 'editor',
+    project_access: [],
   });
 
   const loadUsers = useCallback(async () => {
@@ -46,9 +49,19 @@ const UserManagement = ({ onClose }) => {
     }
   }, []);
 
+  const loadProjects = useCallback(async () => {
+    try {
+      const res = await projectsAPI.list();
+      setProjects(res.data);
+    } catch (err) {
+      console.error('Failed to load projects:', err);
+    }
+  }, []);
+
   useEffect(() => {
     loadUsers();
-  }, [loadUsers]);
+    loadProjects();
+  }, [loadUsers, loadProjects]);
 
   const clearMessages = () => {
     setError('');
@@ -61,7 +74,7 @@ const UserManagement = ({ onClose }) => {
     try {
       await usersAPI.create(formData);
       setSuccess('User created successfully');
-      setFormData({ email: '', password: '', name: '', role: 'editor' });
+      setFormData({ email: '', password: '', name: '', role: 'editor', project_access: [] });
       setShowCreateForm(false);
       loadUsers();
     } catch (err) {
@@ -90,6 +103,17 @@ const UserManagement = ({ onClose }) => {
     }
   };
 
+  const handleProjectAccessChange = async (user, newProjectAccess) => {
+    clearMessages();
+    try {
+      await usersAPI.update(user._id, { project_access: newProjectAccess });
+      loadUsers();
+      setSuccess('Project access updated');
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to update project access');
+    }
+  };
+
   const handlePasswordChange = async (userId) => {
     if (!newPassword || newPassword.length < 4) {
       setError('Password must be at least 4 characters');
@@ -106,66 +130,85 @@ const UserManagement = ({ onClose }) => {
     }
   };
 
-  const handleDelete = async (user) => {
+  const handleDelete = async (userId) => {
+    if (!window.confirm('Are you sure you want to delete this user?')) return;
     clearMessages();
-    if (!window.confirm(`Delete user ${user.email}? This action cannot be undone.`)) return;
     try {
-      await usersAPI.delete(user._id);
-      setSuccess('User deleted');
+      await usersAPI.delete(userId);
+      setSuccess('User deleted successfully');
       loadUsers();
     } catch (err) {
       setError(err.response?.data?.detail || 'Failed to delete user');
     }
   };
 
+  const toggleProjectAccess = (projectId) => {
+    setFormData((prev) => ({
+      ...prev,
+      project_access: prev.project_access.includes(projectId)
+        ? prev.project_access.filter((p) => p !== projectId)
+        : [...prev.project_access, projectId],
+    }));
+  };
+
+  const toggleProjectAccessForUser = (user, projectId) => {
+    const currentAccess = user.project_access || [];
+    const newAccess = currentAccess.includes(projectId)
+      ? currentAccess.filter((p) => p !== projectId)
+      : [...currentAccess, projectId];
+    handleProjectAccessChange(user, newAccess);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: 'var(--primary)' }} />
+      </div>
+    );
+  }
+
   return (
-    <div className="p-6 md:p-10" data-testid="user-management-panel">
-      <div className="max-w-[900px] mx-auto">
+    <div className="h-full overflow-y-auto custom-scrollbar" style={{ backgroundColor: 'var(--sunken)' }}>
+      <div className="max-w-5xl mx-auto p-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
-          <div>
-            <h2
-              className="font-headline text-2xl font-bold tracking-tight"
-              style={{ color: 'var(--on-surface)' }}
-            >
-              User Management
-            </h2>
-            <p className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
-              Manage team members and their roles
-            </p>
-          </div>
           <div className="flex items-center gap-3">
-            <button
-              data-testid="create-user-button"
-              onClick={() => {
-                setShowCreateForm(true);
-                clearMessages();
-              }}
-              className="gradient-btn flex items-center gap-2 px-4 py-2 rounded-[4px] font-headline font-bold text-xs tracking-wider uppercase"
+            <div
+              className="w-10 h-10 rounded-lg flex items-center justify-center"
+              style={{ backgroundColor: 'var(--primary)', color: 'var(--bg)' }}
             >
-              <Plus size={14} />
-              Add User
-            </button>
-            {onClose && (
-              <button
-                onClick={onClose}
-                className="w-8 h-8 rounded-[4px] grid place-items-center"
-                style={{ color: 'var(--muted-2)' }}
-              >
-                <X size={16} />
-              </button>
-            )}
+              <UserCog className="w-5 h-5" />
+            </div>
+            <div>
+              <h1 className="font-headline text-2xl font-bold" style={{ color: 'var(--on-surface)' }}>
+                User Management
+              </h1>
+              <p className="text-sm" style={{ color: 'var(--muted)' }}>
+                Manage users and their project access
+              </p>
+            </div>
           </div>
+          <button
+            onClick={onClose}
+            data-testid="user-management-close-button"
+            className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+            style={{
+              backgroundColor: 'var(--elevated)',
+              color: 'var(--muted)',
+            }}
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
         {/* Messages */}
         <AnimatePresence>
           {error && (
             <motion.div
-              initial={{ opacity: 0, y: -8 }}
+              initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className="mb-4 px-4 py-2 rounded-[4px] text-sm"
+              className="mb-4 px-4 py-3 rounded-lg"
               style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)' }}
             >
               {error}
@@ -173,16 +216,28 @@ const UserManagement = ({ onClose }) => {
           )}
           {success && (
             <motion.div
-              initial={{ opacity: 0, y: -8 }}
+              initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className="mb-4 px-4 py-2 rounded-[4px] text-sm"
-              style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: 'var(--primary-2)' }}
+              className="mb-4 px-4 py-3 rounded-lg"
+              style={{ backgroundColor: 'rgba(16, 185, 129, 0.1)', color: 'var(--primary)' }}
             >
               {success}
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Create User Button */}
+        <div className="mb-6">
+          <button
+            onClick={() => setShowCreateForm(!showCreateForm)}
+            data-testid="create-user-button"
+            className="gradient-btn px-6 py-2.5 rounded-lg font-bold text-xs tracking-widest uppercase flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            Create New User
+          </button>
+        </div>
 
         {/* Create User Form */}
         <AnimatePresence>
@@ -191,90 +246,148 @@ const UserManagement = ({ onClose }) => {
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
-              className="overflow-hidden mb-6"
+              className="mb-6 p-6 rounded-lg"
+              style={{ backgroundColor: 'var(--elevated)' }}
             >
-              <form
-                onSubmit={handleCreate}
-                data-testid="create-user-form"
-                className="p-6 rounded-[4px]"
-                style={{ backgroundColor: 'var(--elevated)' }}
-              >
-                <h3 className="font-headline text-sm font-semibold mb-4" style={{ color: 'var(--on-surface)' }}>
-                  New User
-                </h3>
+              <h2 className="font-headline text-lg font-bold mb-4" style={{ color: 'var(--on-surface)' }}>
+                Create New User
+              </h2>
+              <form onSubmit={handleCreate}>
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div>
-                    <label className="block text-[10px] font-medium uppercase tracking-wider mb-1" style={{ color: 'var(--muted-2)' }}>
-                      Name
+                    <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--muted)' }}>
+                      EMAIL
                     </label>
                     <input
-                      data-testid="create-user-name-input"
-                      type="text"
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      className="w-full h-8 rounded-[4px] px-3 text-sm"
-                      style={{ backgroundColor: 'var(--sunken)', color: 'var(--on-surface)', border: 'none', outline: 'none' }}
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-medium uppercase tracking-wider mb-1" style={{ color: 'var(--muted-2)' }}>
-                      Email
-                    </label>
-                    <input
-                      data-testid="create-user-email-input"
                       type="email"
+                      data-testid="create-user-email"
                       value={formData.email}
                       onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                       className="w-full h-8 rounded-[4px] px-3 text-sm"
-                      style={{ backgroundColor: 'var(--sunken)', color: 'var(--on-surface)', border: 'none', outline: 'none' }}
+                      style={{
+                        backgroundColor: 'var(--sunken)',
+                        color: 'var(--on-surface)',
+                        border: 'none',
+                      }}
                       required
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-medium uppercase tracking-wider mb-1" style={{ color: 'var(--muted-2)' }}>
-                      Password
+                    <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--muted)' }}>
+                      NAME
                     </label>
                     <input
-                      data-testid="create-user-password-input"
+                      type="text"
+                      data-testid="create-user-name"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      className="w-full h-8 rounded-[4px] px-3 text-sm"
+                      style={{
+                        backgroundColor: 'var(--sunken)',
+                        color: 'var(--on-surface)',
+                        border: 'none',
+                      }}
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--muted)' }}>
+                      PASSWORD
+                    </label>
+                    <input
                       type="password"
+                      data-testid="create-user-password"
                       value={formData.password}
                       onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                       className="w-full h-8 rounded-[4px] px-3 text-sm"
-                      style={{ backgroundColor: 'var(--sunken)', color: 'var(--on-surface)', border: 'none', outline: 'none' }}
+                      style={{
+                        backgroundColor: 'var(--sunken)',
+                        color: 'var(--on-surface)',
+                        border: 'none',
+                      }}
                       required
-                      minLength={4}
                     />
                   </div>
                   <div>
-                    <label className="block text-[10px] font-medium uppercase tracking-wider mb-1" style={{ color: 'var(--muted-2)' }}>
-                      Role
+                    <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--muted)' }}>
+                      ROLE
                     </label>
                     <select
-                      data-testid="create-user-role-select"
+                      data-testid="create-user-role"
                       value={formData.role}
                       onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                      className="w-full h-8 rounded-[4px] px-3 text-sm appearance-none cursor-pointer"
-                      style={{ backgroundColor: 'var(--sunken)', color: 'var(--on-surface)', border: 'none', outline: 'none' }}
+                      className="w-full h-8 rounded-[4px] px-3 text-sm"
+                      style={{
+                        backgroundColor: 'var(--sunken)',
+                        color: 'var(--on-surface)',
+                        border: 'none',
+                      }}
                     >
                       <option value="editor">Editor</option>
                       <option value="admin">Admin</option>
                     </select>
                   </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="submit"
-                    data-testid="create-user-submit"
-                    className="gradient-btn flex items-center gap-1 px-4 py-2 rounded-[4px] font-headline font-bold text-xs tracking-wider uppercase"
-                  >
-                    <Check size={12} /> Create User
+
+                {/* Project Access Selection */}
+                {formData.role === 'editor' && projects.length > 0 && (
+                  <div className="mb-4">
+                    <label className="block text-xs font-medium mb-2" style={{ color: 'var(--muted)' }}>
+                      PROJECT ACCESS
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      {projects.map((project) => (
+                        <label
+                          key={project.project_id}
+                          className="flex items-center gap-2 p-2 rounded cursor-pointer transition-colors"
+                          style={{
+                            backgroundColor: formData.project_access.includes(project.project_id)
+                              ? 'var(--primary-dim)'
+                              : 'var(--sunken)',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={formData.project_access.includes(project.project_id)}
+                            onChange={() => toggleProjectAccess(project.project_id)}
+                            className="w-4 h-4"
+                          />
+                          <span className="text-sm" style={{ color: 'var(--on-surface)' }}>
+                            {project.name}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                    {formData.role === 'editor' && formData.project_access.length === 0 && (
+                      <p className="text-xs mt-1" style={{ color: 'var(--warning)' }}>
+                        Editors without project access won't be able to access any projects
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {formData.role === 'admin' && (
+                  <div className="mb-4 p-3 rounded-lg" style={{ backgroundColor: 'var(--sunken)' }}>
+                    <div className="flex items-center gap-2">
+                      <Shield className="w-4 h-4" style={{ color: 'var(--primary)' }} />
+                      <p className="text-xs" style={{ color: 'var(--muted)' }}>
+                        Admins have access to all projects automatically
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex gap-3">
+                  <button type="submit" className="gradient-btn px-6 py-2 rounded-lg font-bold text-xs tracking-widest uppercase">
+                    Create User
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowCreateForm(false)}
-                    className="text-xs font-medium px-3 py-2 rounded-[4px]"
-                    style={{ color: 'var(--muted)' }}
+                    className="px-6 py-2 rounded-lg font-bold text-xs tracking-widest uppercase"
+                    style={{ backgroundColor: 'var(--sunken)', color: 'var(--muted)' }}
                   >
                     Cancel
                   </button>
@@ -284,168 +397,230 @@ const UserManagement = ({ onClose }) => {
           )}
         </AnimatePresence>
 
-        {/* Users list */}
-        {loading ? (
-          <div className="flex items-center justify-center py-16">
-            <Loader2 size={20} className="animate-spin" style={{ color: 'var(--muted)' }} />
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {users.map((user, idx) => (
-              <motion.div
-                key={user._id}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: idx * 0.04 }}
-                data-testid={`user-row-${user.email}`}
-                className="p-4 rounded-[4px] flex items-center gap-4"
-                style={{ backgroundColor: 'rgba(255,255,255,0.02)' }}
-              >
-                {/* Avatar */}
-                <div
-                  className="w-10 h-10 rounded-full grid place-items-center text-sm font-bold flex-shrink-0"
-                  style={{
-                    backgroundColor: user.is_active !== false ? 'rgba(16, 185, 129, 0.14)' : 'rgba(239, 68, 68, 0.1)',
-                    color: user.is_active !== false ? 'var(--primary-2)' : 'var(--danger)',
-                  }}
-                >
-                  {user.name?.[0]?.toUpperCase() || user.email[0].toUpperCase()}
-                </div>
-
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-headline text-sm font-semibold" style={{ color: 'var(--on-surface)' }}>
-                      {user.name}
-                    </span>
-                    {/* Role badge */}
-                    {editingUser === user._id ? (
-                      <select
-                        data-testid={`user-role-select-${user.email}`}
-                        value={user.role}
-                        onChange={(e) => handleRoleChange(user, e.target.value)}
-                        onBlur={() => setEditingUser(null)}
-                        autoFocus
-                        className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-[3px] appearance-none cursor-pointer"
-                        style={{
-                          backgroundColor: user.role === 'admin' ? 'rgba(56, 189, 248, 0.14)' : 'rgba(16, 185, 129, 0.14)',
-                          color: user.role === 'admin' ? 'var(--info)' : 'var(--primary-2)',
-                          border: 'none',
-                          outline: 'none',
-                        }}
-                      >
-                        <option value="admin">Admin</option>
-                        <option value="editor">Editor</option>
-                      </select>
-                    ) : (
-                      <span
-                        className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-[3px] cursor-pointer"
-                        onClick={() => setEditingUser(user._id)}
-                        style={{
-                          backgroundColor: user.role === 'admin' ? 'rgba(56, 189, 248, 0.14)' : 'rgba(16, 185, 129, 0.14)',
-                          color: user.role === 'admin' ? 'var(--info)' : 'var(--primary-2)',
-                        }}
-                      >
-                        {user.role === 'admin' ? 'Admin' : 'Editor'}
-                      </span>
-                    )}
-                    {user.is_active === false && (
-                      <span
-                        className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-[3px]"
-                        style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)' }}
-                      >
-                        Disabled
-                      </span>
-                    )}
+        {/* Users List */}
+        <div className="space-y-3">
+          {users.map((user) => (
+            <div
+              key={user._id}
+              className="p-5 rounded-lg"
+              style={{ backgroundColor: 'var(--elevated)' }}
+              data-testid={`user-item-${user.email}`}
+            >
+              <div className="flex items-start justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-10 h-10 rounded-full flex items-center justify-center font-bold"
+                    style={{
+                      backgroundColor: user.is_active ? 'var(--primary)' : 'var(--muted)',
+                      color: 'var(--bg)',
+                    }}
+                  >
+                    {user.name?.charAt(0)?.toUpperCase() || user.email.charAt(0).toUpperCase()}
                   </div>
-                  <div className="flex items-center gap-1 mt-0.5">
-                    <Mail size={10} style={{ color: 'var(--muted-2)' }} />
-                    <span className="text-xs" style={{ color: 'var(--muted-2)' }}>
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="font-headline font-bold" style={{ color: 'var(--on-surface)' }}>
+                        {user.name || 'Unnamed'}
+                      </h3>
+                      <span
+                        className="px-2 py-0.5 rounded text-[10px] font-bold tracking-widest uppercase"
+                        style={{
+                          backgroundColor: user.role === 'admin' ? 'var(--primary-dim)' : 'var(--sunken)',
+                          color: user.role === 'admin' ? 'var(--primary)' : 'var(--muted)',
+                        }}
+                      >
+                        {user.role}
+                      </span>
+                      {!user.is_active && (
+                        <span
+                          className="px-2 py-0.5 rounded text-[10px] font-bold tracking-widest uppercase"
+                          style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)' }}
+                        >
+                          Disabled
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1.5 text-sm" style={{ color: 'var(--muted)' }}>
+                      <Mail className="w-3.5 h-3.5" />
                       {user.email}
-                    </span>
+                    </div>
                   </div>
-
-                  {/* Inline password change */}
-                  <AnimatePresence>
-                    {changingPassword === user._id && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="mt-2 flex items-center gap-2 overflow-hidden"
-                      >
-                        <input
-                          data-testid={`password-input-${user.email}`}
-                          type="password"
-                          placeholder="New password"
-                          value={newPassword}
-                          onChange={(e) => setNewPassword(e.target.value)}
-                          className="h-7 rounded-[4px] px-2 text-xs w-48"
-                          style={{ backgroundColor: 'var(--sunken)', color: 'var(--on-surface)', border: 'none', outline: 'none' }}
-                        />
-                        <button
-                          data-testid={`password-confirm-${user.email}`}
-                          onClick={() => handlePasswordChange(user._id)}
-                          className="w-7 h-7 rounded-[4px] grid place-items-center"
-                          style={{ backgroundColor: 'rgba(16, 185, 129, 0.14)', color: 'var(--primary-2)' }}
-                        >
-                          <Check size={12} />
-                        </button>
-                        <button
-                          onClick={() => { setChangingPassword(null); setNewPassword(''); }}
-                          className="w-7 h-7 rounded-[4px] grid place-items-center"
-                          style={{ color: 'var(--muted-2)' }}
-                        >
-                          <X size={12} />
-                        </button>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
                 </div>
 
                 {/* Actions */}
-                <div className="flex items-center gap-1 flex-shrink-0">
-                  {/* Toggle active */}
+                <div className="flex items-center gap-2">
                   <button
-                    data-testid={`toggle-active-${user.email}`}
                     onClick={() => handleToggleActive(user)}
-                    className="w-8 h-8 rounded-[4px] grid place-items-center transition-colors duration-150"
-                    style={{ color: user.is_active !== false ? 'var(--primary-2)' : 'var(--muted-2)' }}
-                    title={user.is_active !== false ? 'Disable user' : 'Enable user'}
+                    data-testid={`toggle-active-${user.email}`}
+                    className="p-2 rounded hover:bg-opacity-80 transition-colors"
+                    style={{ backgroundColor: 'var(--sunken)' }}
+                    title={user.is_active ? 'Disable user' : 'Enable user'}
                   >
-                    {user.is_active !== false ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
+                    {user.is_active ? (
+                      <ToggleRight className="w-4 h-4" style={{ color: 'var(--primary)' }} />
+                    ) : (
+                      <ToggleLeft className="w-4 h-4" style={{ color: 'var(--muted)' }} />
+                    )}
                   </button>
-
-                  {/* Change password */}
                   <button
+                    onClick={() => setEditingUser(editingUser === user._id ? null : user._id)}
+                    data-testid={`edit-role-${user.email}`}
+                    className="p-2 rounded hover:bg-opacity-80 transition-colors"
+                    style={{ backgroundColor: 'var(--sunken)', color: 'var(--muted)' }}
+                    title="Edit role"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setChangingPassword(changingPassword === user._id ? null : user._id)}
                     data-testid={`change-password-${user.email}`}
-                    onClick={() => {
-                      setChangingPassword(changingPassword === user._id ? null : user._id);
-                      setNewPassword('');
-                      clearMessages();
-                    }}
-                    className="w-8 h-8 rounded-[4px] grid place-items-center transition-colors duration-150"
-                    style={{ color: 'var(--muted)' }}
+                    className="p-2 rounded hover:bg-opacity-80 transition-colors"
+                    style={{ backgroundColor: 'var(--sunken)', color: 'var(--muted)' }}
                     title="Change password"
                   >
-                    <Key size={14} />
+                    <Key className="w-4 h-4" />
                   </button>
-
-                  {/* Delete */}
                   <button
+                    onClick={() => handleDelete(user._id)}
                     data-testid={`delete-user-${user.email}`}
-                    onClick={() => handleDelete(user)}
-                    className="w-8 h-8 rounded-[4px] grid place-items-center transition-colors duration-150"
-                    style={{ color: 'var(--danger)' }}
+                    className="p-2 rounded hover:bg-opacity-80 transition-colors"
+                    style={{ backgroundColor: 'var(--sunken)', color: 'var(--danger)' }}
                     title="Delete user"
                   >
-                    <Trash2 size={14} />
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
-              </motion.div>
-            ))}
-          </div>
-        )}
+              </div>
+
+              {/* Project Access for Editors */}
+              {user.role === 'editor' && projects.length > 0 && (
+                <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--sunken)' }}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Globe className="w-3.5 h-3.5" style={{ color: 'var(--muted)' }} />
+                    <label className="text-xs font-medium" style={{ color: 'var(--muted)' }}>
+                      PROJECT ACCESS
+                    </label>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {projects.map((project) => {
+                      const hasAccess = (user.project_access || []).includes(project.project_id);
+                      return (
+                        <button
+                          key={project.project_id}
+                          onClick={() => toggleProjectAccessForUser(user, project.project_id)}
+                          className="px-3 py-1.5 rounded text-xs font-medium transition-colors"
+                          style={{
+                            backgroundColor: hasAccess ? 'var(--primary-dim)' : 'var(--sunken)',
+                            color: hasAccess ? 'var(--primary)' : 'var(--muted)',
+                          }}
+                        >
+                          {hasAccess && <Check className="w-3 h-3 inline mr-1" />}
+                          {project.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {(!user.project_access || user.project_access.length === 0) && (
+                    <p className="text-xs mt-2" style={{ color: 'var(--warning)' }}>
+                      ⚠️ This editor has no project access
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {user.role === 'admin' && (
+                <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--sunken)' }}>
+                  <div className="flex items-center gap-2">
+                    <Shield className="w-3.5 h-3.5" style={{ color: 'var(--primary)' }} />
+                    <p className="text-xs" style={{ color: 'var(--muted)' }}>
+                      Has access to all projects
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Role Change Form */}
+              <AnimatePresence>
+                {editingUser === user._id && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="mt-3 pt-3"
+                    style={{ borderTop: '1px solid var(--sunken)' }}
+                  >
+                    <label className="block text-xs font-medium mb-2" style={{ color: 'var(--muted)' }}>
+                      CHANGE ROLE
+                    </label>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => handleRoleChange(user, 'editor')}
+                        className={`px-4 py-2 rounded text-xs font-bold tracking-widest uppercase ${
+                          user.role === 'editor' ? 'gradient-btn' : ''
+                        }`}
+                        style={{
+                          backgroundColor: user.role === 'editor' ? undefined : 'var(--sunken)',
+                          color: user.role === 'editor' ? undefined : 'var(--muted)',
+                        }}
+                      >
+                        Editor
+                      </button>
+                      <button
+                        onClick={() => handleRoleChange(user, 'admin')}
+                        className={`px-4 py-2 rounded text-xs font-bold tracking-widest uppercase ${
+                          user.role === 'admin' ? 'gradient-btn' : ''
+                        }`}
+                        style={{
+                          backgroundColor: user.role === 'admin' ? undefined : 'var(--sunken)',
+                          color: user.role === 'admin' ? undefined : 'var(--muted)',
+                        }}
+                      >
+                        Admin
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* Password Change Form */}
+              <AnimatePresence>
+                {changingPassword === user._id && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="mt-3 pt-3"
+                    style={{ borderTop: '1px solid var(--sunken)' }}
+                  >
+                    <label className="block text-xs font-medium mb-2" style={{ color: 'var(--muted)' }}>
+                      NEW PASSWORD
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="Enter new password"
+                        className="flex-1 h-8 rounded-[4px] px-3 text-sm"
+                        style={{
+                          backgroundColor: 'var(--sunken)',
+                          color: 'var(--on-surface)',
+                          border: 'none',
+                        }}
+                      />
+                      <button
+                        onClick={() => handlePasswordChange(user._id)}
+                        className="gradient-btn px-4 py-2 rounded text-xs font-bold tracking-widest uppercase"
+                      >
+                        Save
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

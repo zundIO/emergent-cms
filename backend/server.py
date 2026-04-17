@@ -149,11 +149,13 @@ class RegisterRequest(BaseModel):
     password: str
     name: str
     role: str = "editor"
+    project_access: Optional[List[str]] = None
 
 class UpdateUserRequest(BaseModel):
     name: Optional[str] = None
     role: Optional[str] = None
     is_active: Optional[bool] = None
+    project_access: Optional[List[str]] = None
 
 class ChangePasswordRequest(BaseModel):
     new_password: str
@@ -353,9 +355,9 @@ def get_demo_about_page():
 def seed_database():
     if users_col.count_documents({}) == 0:
         users_col.insert_many([
-            {"email": "roman@zund.io", "password_hash": hash_password("admin123"), "name": "Roman Zund", "role": "admin", "is_active": True, "created_at": datetime.now(timezone.utc)},
-            {"email": "admin@monolith.cms", "password_hash": hash_password("admin123"), "name": "Admin", "role": "admin", "is_active": True, "created_at": datetime.now(timezone.utc)},
-            {"email": "editor@monolith.cms", "password_hash": hash_password("editor123"), "name": "Editor", "role": "editor", "is_active": True, "created_at": datetime.now(timezone.utc)},
+            {"email": "roman@zund.io", "password_hash": hash_password("admin123"), "name": "Roman Zund", "role": "admin", "is_active": True, "project_access": [], "created_at": datetime.now(timezone.utc)},
+            {"email": "admin@monolith.cms", "password_hash": hash_password("admin123"), "name": "Admin", "role": "admin", "is_active": True, "project_access": [], "created_at": datetime.now(timezone.utc)},
+            {"email": "editor@monolith.cms", "password_hash": hash_password("editor123"), "name": "Editor", "role": "editor", "is_active": True, "project_access": ["default"], "created_at": datetime.now(timezone.utc)},
         ])
         print("Seeded users")
 
@@ -420,13 +422,27 @@ async def login(req: LoginRequest):
 async def register(req: RegisterRequest, current_user: dict = Depends(require_admin)):
     if users_col.find_one({"email": req.email}):
         raise HTTPException(status_code=400, detail="Email already exists")
-    new_user = {"email": req.email, "password_hash": hash_password(req.password), "name": req.name, "role": req.role, "is_active": True, "created_at": datetime.now(timezone.utc)}
+    new_user = {
+        "email": req.email,
+        "password_hash": hash_password(req.password),
+        "name": req.name,
+        "role": req.role,
+        "is_active": True,
+        "project_access": req.project_access if req.project_access else [],
+        "created_at": datetime.now(timezone.utc)
+    }
     result = users_col.insert_one(new_user)
-    return {"id": str(result.inserted_id), "email": req.email, "name": req.name, "role": req.role}
+    return {"id": str(result.inserted_id), "email": req.email, "name": req.name, "role": req.role, "project_access": new_user["project_access"]}
 
 @app.get("/api/auth/me")
 async def get_me(current_user: dict = Depends(get_current_user)):
-    return {"id": current_user["_id"], "email": current_user["email"], "name": current_user.get("name", ""), "role": current_user["role"]}
+    return {
+        "id": current_user["_id"],
+        "email": current_user["email"],
+        "name": current_user.get("name", ""),
+        "role": current_user["role"],
+        "project_access": current_user.get("project_access", [])
+    }
 
 
 # ============================================================
@@ -436,7 +452,15 @@ async def get_me(current_user: dict = Depends(get_current_user)):
 @app.get("/api/users")
 async def list_users(current_user: dict = Depends(require_admin)):
     users = list(users_col.find({}))
-    return [serialize_doc({"_id": u["_id"], "email": u["email"], "name": u.get("name", ""), "role": u["role"], "is_active": u.get("is_active", True), "created_at": u.get("created_at")}) for u in users]
+    return [serialize_doc({
+        "_id": u["_id"],
+        "email": u["email"],
+        "name": u.get("name", ""),
+        "role": u["role"],
+        "is_active": u.get("is_active", True),
+        "project_access": u.get("project_access", []),
+        "created_at": u.get("created_at")
+    }) for u in users]
 
 @app.put("/api/users/{user_id}")
 async def update_user(user_id: str, body: UpdateUserRequest, current_user: dict = Depends(require_admin)):
@@ -454,10 +478,18 @@ async def update_user(user_id: str, body: UpdateUserRequest, current_user: dict 
     if body.name is not None: update_fields["name"] = body.name
     if body.role is not None and body.role in ["admin", "editor"]: update_fields["role"] = body.role
     if body.is_active is not None: update_fields["is_active"] = body.is_active
+    if body.project_access is not None: update_fields["project_access"] = body.project_access
     if update_fields:
         users_col.update_one({"_id": ObjectId(user_id)}, {"$set": update_fields})
     updated = users_col.find_one({"_id": ObjectId(user_id)})
-    return serialize_doc({"_id": updated["_id"], "email": updated["email"], "name": updated.get("name", ""), "role": updated["role"], "is_active": updated.get("is_active", True)})
+    return serialize_doc({
+        "_id": updated["_id"],
+        "email": updated["email"],
+        "name": updated.get("name", ""),
+        "role": updated["role"],
+        "is_active": updated.get("is_active", True),
+        "project_access": updated.get("project_access", [])
+    })
 
 @app.put("/api/users/{user_id}/password")
 async def change_user_password(user_id: str, body: ChangePasswordRequest, current_user: dict = Depends(require_admin)):
@@ -483,7 +515,16 @@ async def delete_user(user_id: str, current_user: dict = Depends(require_admin))
 
 @app.get("/api/projects")
 async def list_projects(current_user: dict = Depends(get_current_user)):
-    projects = list(projects_col.find({}))
+    # Admins see all projects, editors only their assigned ones
+    if current_user.get("role") == "admin":
+        projects = list(projects_col.find({}))
+    else:
+        # Filter by project_access
+        project_access = current_user.get("project_access", [])
+        if not project_access:
+            return []  # No access to any project
+        projects = list(projects_col.find({"project_id": {"$in": project_access}}))
+    
     result = []
     for p in projects:
         page_count = pages_col.count_documents({"project_id": p["project_id"]})
@@ -659,6 +700,12 @@ def merge_elements_with_timestamps(existing_elements, new_elements, element_time
 
 @app.get("/api/pages")
 async def list_pages(project_id: str = "default", current_user: dict = Depends(get_current_user)):
+    # Check if user has access to this project
+    if current_user.get("role") != "admin":
+        project_access = current_user.get("project_access", [])
+        if project_id not in project_access:
+            raise HTTPException(status_code=403, detail="No access to this project")
+    
     pages = list(pages_col.find({"project_id": project_id}))
     return [serialize_doc({
         "_id": p["_id"],
