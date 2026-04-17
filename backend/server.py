@@ -604,12 +604,8 @@ async def import_schema(body: SchemaImportRequest, current_user: dict = Depends(
 
 def merge_elements_with_timestamps(existing_elements, new_elements, element_timestamps, source_ts):
     """
-    Smart merge with timestamp comparison:
-    - element_timestamps: { element_id: ISO_string } tracks when CMS editors last changed each element
-    - source_ts: when the website/schema was last built
-    - If CMS edit timestamp > source_ts → keep CMS content (editor's change is newer)
-    - If CMS edit timestamp <= source_ts → take new content (Emergent's change is newer)
-    - New elements (not in existing): always add
+    Smart merge with timestamp comparison.
+    Keeps CMS editor changes if they are newer than source_updated_at.
     """
     existing_map = {}
     def build_map(elements):
@@ -619,32 +615,37 @@ def merge_elements_with_timestamps(existing_elements, new_elements, element_time
                 build_map(el["children"])
     build_map(existing_elements)
 
+    # Ensure source_ts is timezone-aware for proper comparison
+    if source_ts.tzinfo is None:
+        source_ts = source_ts.replace(tzinfo=timezone.utc)
+
     def merge_tree(new_els):
         result = []
         for new_el in new_els:
             eid = new_el.get("id")
             if eid in existing_map:
-                cms_edit_ts_str = element_timestamps.get(eid)
                 cms_edit_ts = None
+                cms_edit_ts_str = element_timestamps.get(eid)
                 if cms_edit_ts_str:
                     try:
-                        cms_edit_ts = datetime.fromisoformat(cms_edit_ts_str.replace("Z", "+00:00"))
+                        parsed = datetime.fromisoformat(str(cms_edit_ts_str).replace("Z", "+00:00"))
+                        if parsed.tzinfo is None:
+                            parsed = parsed.replace(tzinfo=timezone.utc)
+                        cms_edit_ts = parsed
                     except Exception:
                         cms_edit_ts = None
 
-                # Decide: keep CMS content or take Emergent's new content
-                if cms_edit_ts and cms_edit_ts > source_ts:
-                    # CMS editor changed this AFTER the website was built → keep CMS content
+                if cms_edit_ts is not None and cms_edit_ts > source_ts:
+                    # CMS editor changed AFTER website build: keep CMS content
                     merged = {**new_el, "content": existing_map[eid].get("content", new_el.get("content", {}))}
                 else:
-                    # Emergent's version is newer or no CMS edit → take new content
+                    # No CMS edit or Emergent is newer: take new content
                     merged = {**new_el}
 
                 if new_el.get("children"):
                     merged["children"] = merge_tree(new_el["children"])
                 result.append(merged)
             else:
-                # New element from Emergent → add it
                 result.append(new_el)
         return result
 
