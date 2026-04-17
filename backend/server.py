@@ -353,6 +353,7 @@ def get_demo_about_page():
 def seed_database():
     if users_col.count_documents({}) == 0:
         users_col.insert_many([
+            {"email": "roman@zund.io", "password_hash": hash_password("admin123"), "name": "Roman Zund", "role": "admin", "is_active": True, "created_at": datetime.now(timezone.utc)},
             {"email": "admin@monolith.cms", "password_hash": hash_password("admin123"), "name": "Admin", "role": "admin", "is_active": True, "created_at": datetime.now(timezone.utc)},
             {"email": "editor@monolith.cms", "password_hash": hash_password("editor123"), "name": "Editor", "role": "editor", "is_active": True, "created_at": datetime.now(timezone.utc)},
         ])
