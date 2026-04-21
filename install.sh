@@ -1,11 +1,11 @@
 #!/bin/bash
-# Monolith CMS - One-Command Installation
-# Usage: curl -sSL https://raw.githubusercontent.com/zundIO/emergent-cms/main/install.sh | bash
+# Monolith CMS - Zero-Config One-Command Installer
+# Usage: curl -fsSL https://raw.githubusercontent.com/zundIO/emergent-cms/main/install.sh | bash
 
 set -e
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  MONOLITH CMS - Embedded Edition"
+echo "  MONOLITH CMS - Embedded Edition (Zero-Config)"
 echo "  Installing..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
@@ -18,52 +18,31 @@ BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
 # Colors
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
+YELLOW='\033[0;33m'
 RED='\033[0;31m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 # Check if we're in a Next.js project
 if [ ! -f "package.json" ]; then
-  echo -e "${RED}❌ Error: package.json not found. Are you in a Next.js project?${NC}"
+  echo -e "${RED}Error: package.json not found. Run this inside a Next.js project root.${NC}"
   exit 1
 fi
 
-echo -e "${BLUE}📦 Step 1/6: Creating directories...${NC}"
-mkdir -p lib/cms
-mkdir -p pages/api/cms
-mkdir -p pages/cms
-mkdir -p public
-mkdir -p cms-data
+echo -e "${BLUE}Step 1/6: Creating directories...${NC}"
+mkdir -p lib/cms pages/api/cms pages/cms public cms-data
 
-echo -e "${BLUE}📥 Step 2/6: Downloading CMS files...${NC}"
+echo -e "${BLUE}Step 2/6: Downloading CMS backend files...${NC}"
+curl -sf "${BASE_URL}/lib/storage.js"              -o lib/cms/storage.js
+curl -sf "${BASE_URL}/lib/auth.js"                 -o lib/cms/auth.js
+curl -sf "${BASE_URL}/pages/api/cms/auth.js"       -o pages/api/cms/auth.js
+curl -sf "${BASE_URL}/pages/api/cms/setup.js"      -o pages/api/cms/setup.js
+curl -sf "${BASE_URL}/pages/api/cms/content.js"    -o pages/api/cms/content.js
+curl -sf "${BASE_URL}/pages/api/cms/discover.js"   -o pages/api/cms/discover.js
+curl -sf "${BASE_URL}/pages/api/cms/register.js"   -o pages/api/cms/register.js
+curl -sf "${BASE_URL}/pages/api/cms/public.js"     -o pages/api/cms/public.js
+curl -sf "${BASE_URL}/public/cms-client.js"        -o public/cms-client.js
 
-# Download lib files
-curl -sf "${BASE_URL}/lib/storage.js" -o lib/cms/storage.js || { echo "Failed to download storage.js"; exit 1; }
-curl -sf "${BASE_URL}/lib/auth.js" -o lib/cms/auth.js || { echo "Failed to download auth.js"; exit 1; }
-
-# Download API files
-curl -sf "${BASE_URL}/pages/api/cms/auth.js" -o pages/api/cms/auth.js || { echo "Failed to download api/auth.js"; exit 1; }
-curl -sf "${BASE_URL}/pages/api/cms/content.js" -o pages/api/cms/content.js || { echo "Failed to download api/content.js"; exit 1; }
-curl -sf "${BASE_URL}/pages/api/cms/discover.js" -o pages/api/cms/discover.js || { echo "Failed to download api/discover.js"; exit 1; }
-curl -sf "${BASE_URL}/pages/api/cms/public.js" -o pages/api/cms/public.js || { echo "Failed to download api/public.js"; exit 1; }
-
-# Download client script (local copy for fallback)
-curl -sf "${BASE_URL}/public/cms-client.js" -o public/cms-client.js || { echo "Failed to download cms-client.js"; exit 1; }
-
-# Also create CDN version that auto-updates
-echo "Creating auto-updating client loader..."
-cat > public/cms-client-cdn.js << 'EOFCDN'
-// Auto-updating CMS client - always loads latest from GitHub
-(function() {
-  var script = document.createElement('script');
-  script.src = 'https://cdn.jsdelivr.net/gh/zundIO/emergent-cms@main/public/cms-client.js';
-  script.async = false;
-  document.head.appendChild(script);
-})();
-EOFCDN
-
-echo -e "${BLUE}📝 Step 3/6: Creating CMS Editor page...${NC}"
-
-# Create CMS Editor page
+echo -e "${BLUE}Step 3/6: Creating CMS Editor page...${NC}"
 cat > pages/cms.js << 'EOFCMS'
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
@@ -71,23 +50,57 @@ import { useRouter } from 'next/router';
 export default function CMSEditor() {
   const router = useRouter();
   const [authenticated, setAuthenticated] = useState(false);
+  const [setupRequired, setSetupRequired] = useState(false);
   const [password, setPassword] = useState('');
+  const [password2, setPassword2] = useState('');
   const [content, setContent] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState(null);
-  const [editValue, setEditValue] = useState('');
+  const [editValue, setEditValue] = useState({});
+  const [filter, setFilter] = useState('all');
 
   useEffect(() => {
-    fetch('/api/cms/auth')
-      .then(r => r.json())
-      .then(data => { setAuthenticated(data.authenticated); setLoading(false); })
+    // Check setup status first, then auth
+    fetch('/api/cms/setup')
+      .then((r) => r.json())
+      .then((s) => {
+        if (s.setupRequired) { setSetupRequired(true); setLoading(false); return; }
+        return fetch('/api/cms/auth')
+          .then((r) => r.json())
+          .then((d) => { setAuthenticated(!!d.authenticated); setLoading(false); });
+      })
       .catch(() => setLoading(false));
   }, []);
 
   useEffect(() => { if (authenticated) loadContent(); }, [authenticated]);
 
   const loadContent = () => {
-    fetch('/api/cms/content').then(r => r.json()).then(setContent).catch(err => alert('Failed to load'));
+    fetch('/api/cms/content').then((r) => r.json()).then(setContent).catch(() => {});
+  };
+
+  const handleSetup = async (e) => {
+    e.preventDefault();
+    if (password.length < 8) return alert('Password must be at least 8 characters');
+    if (password !== password2) return alert('Passwords do not match');
+    const res = await fetch('/api/cms/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    if (!res.ok) return alert('Setup failed');
+    // Auto-login with the new password
+    const loginRes = await fetch('/api/cms/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    if (loginRes.ok) {
+      setSetupRequired(false);
+      setAuthenticated(true);
+      setPassword(''); setPassword2('');
+    } else {
+      alert('Setup saved. Please reload and log in.');
+    }
   };
 
   const handleLogin = async (e) => {
@@ -97,179 +110,235 @@ export default function CMSEditor() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password })
     });
-    if (res.ok) { setAuthenticated(true); setPassword(''); } else alert('Invalid password');
+    if (res.ok) { setAuthenticated(true); setPassword(''); }
+    else alert('Invalid password');
   };
 
-  const handleDiscover = async () => {
-    const res = await fetch('/api/cms/discover', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: window.location.origin })
-    });
-    const data = await res.json();
-    alert(`Discovered ${data.discovered} elements (${data.new} new)`);
-    loadContent();
-  };
-
-  const handleSave = async (elementId, newContent) => {
+  const handleSave = async (id, newContent) => {
     await fetch('/api/cms/content', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: elementId, content: newContent, published: true })
+      body: JSON.stringify({ id, content: newContent, published: true })
     });
-    loadContent();
     setEditingId(null);
-    alert('Saved!');
+    loadContent();
   };
 
-  const startEdit = (el) => { setEditingId(el.id); setEditValue(el.content?.text || ''); };
+  const togglePublish = async (el) => {
+    await fetch('/api/cms/content', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: el.id, published: !el.published })
+    });
+    loadContent();
+  };
 
-  if (loading) return <div style={{ padding: '2rem' }}>Loading...</div>;
+  const startEdit = (el) => {
+    setEditingId(el.id);
+    setEditValue({ ...el.content });
+  };
 
-  if (!authenticated) {
+  if (loading) {
+    return <div style={{ padding: '2rem', color: '#fff', background: '#0a0a0a', minHeight: '100vh' }}>Loading…</div>;
+  }
+
+  if (setupRequired) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a0a0a' }}>
-        <div style={{ backgroundColor: '#1a1a1a', padding: '3rem', borderRadius: '12px', width: '100%', maxWidth: '400px', border: '1px solid #333' }}>
-          <h1 style={{ fontSize: '2rem', fontWeight: 'bold', marginBottom: '0.5rem', color: '#fff' }}>Monolith CMS</h1>
-          <p style={{ color: '#888', marginBottom: '2rem', fontSize: '0.875rem' }}>Embedded Edition</p>
-          <form onSubmit={handleLogin}>
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Admin Password"
-              style={{ width: '100%', padding: '0.75rem', marginBottom: '1rem', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: '6px', color: '#fff', fontSize: '1rem' }} required />
-            <button type="submit" style={{ width: '100%', padding: '0.75rem', backgroundColor: '#4edea3', color: '#000', border: 'none', borderRadius: '6px', fontWeight: 'bold', fontSize: '1rem', cursor: 'pointer' }}>Login</button>
+      <div data-cms-ignore style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0a0a', fontFamily: 'system-ui, sans-serif' }}>
+        <div style={{ background: '#111', padding: '2.5rem', borderRadius: 12, width: '100%', maxWidth: 420, border: '1px solid #222' }}>
+          <h1 style={{ color: '#fff', fontSize: '1.5rem', margin: 0, marginBottom: 4 }}>Welcome</h1>
+          <p style={{ color: '#888', fontSize: 13, marginTop: 0, marginBottom: 24 }}>Create your admin password to finish setup.</p>
+          <form onSubmit={handleSetup}>
+            <input autoFocus type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="New password (min 8 chars)"
+              style={{ width: '100%', padding: 12, marginBottom: 10, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 15, boxSizing: 'border-box' }} />
+            <input type="password" value={password2} onChange={(e) => setPassword2(e.target.value)} placeholder="Repeat password"
+              style={{ width: '100%', padding: 12, marginBottom: 14, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 15, boxSizing: 'border-box' }} />
+            <button type="submit" style={{ width: '100%', padding: 12, background: '#4edea3', color: '#000', border: 0, borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: 15 }}>
+              Create admin & continue
+            </button>
           </form>
         </div>
       </div>
     );
   }
 
-  return (
-    <div style={{ minHeight: '100vh', backgroundColor: '#0a0a0a', color: '#fff' }}>
-      <div style={{ backgroundColor: '#1a1a1a', borderBottom: '1px solid #333', padding: '1rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <h1 style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>Monolith CMS</h1>
-          <p style={{ color: '#888', fontSize: '0.875rem' }}>{content?.elements ? Object.keys(content.elements).length : 0} Elements</p>
-        </div>
-        <div style={{ display: 'flex', gap: '1rem' }}>
-          <button onClick={handleDiscover} style={{ padding: '0.5rem 1rem', backgroundColor: '#333', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.875rem' }}>🔍 Sync</button>
-          <button onClick={() => router.push('/')} style={{ padding: '0.5rem 1rem', backgroundColor: '#4edea3', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.875rem' }}>View →</button>
+  if (!authenticated) {
+    return (
+      <div data-cms-ignore style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0a0a0a', fontFamily: 'system-ui, sans-serif' }}>
+        <div style={{ background: '#111', padding: '2.5rem', borderRadius: 12, width: '100%', maxWidth: 380, border: '1px solid #222' }}>
+          <h1 style={{ color: '#fff', fontSize: '1.5rem', margin: 0, marginBottom: 4 }}>Monolith CMS</h1>
+          <p style={{ color: '#888', fontSize: 13, marginTop: 0, marginBottom: 24 }}>Embedded Edition</p>
+          <form onSubmit={handleLogin}>
+            <input autoFocus type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Admin Password"
+              style={{ width: '100%', padding: 12, marginBottom: 12, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', fontSize: 15, boxSizing: 'border-box' }} />
+            <button type="submit" style={{ width: '100%', padding: 12, background: '#4edea3', color: '#000', border: 0, borderRadius: 6, fontWeight: 700, cursor: 'pointer', fontSize: 15 }}>
+              Login
+            </button>
+          </form>
         </div>
       </div>
-      <div style={{ padding: '2rem' }}>
-        {!content?.elements && (
-          <div style={{ textAlign: 'center', padding: '3rem', backgroundColor: '#1a1a1a', borderRadius: '12px', border: '1px solid #333' }}>
-            <p style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>No content</p>
-            <p style={{ color: '#888', marginBottom: '2rem' }}>Click "Sync" to discover elements</p>
-            <button onClick={handleDiscover} style={{ padding: '0.75rem 1.5rem', backgroundColor: '#4edea3', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>Sync Now</button>
+    );
+  }
+
+  const elements = content?.elements ? Object.values(content.elements) : [];
+  const pages = Array.from(new Set(elements.map((e) => e.page || '/'))).sort();
+  const filtered = filter === 'all' ? elements : elements.filter((e) => (e.page || '/') === filter);
+
+  return (
+    <div data-cms-ignore style={{ minHeight: '100vh', background: '#0a0a0a', color: '#fff', fontFamily: 'system-ui, sans-serif' }}>
+      <header style={{ background: '#111', borderBottom: '1px solid #222', padding: '1rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div>
+          <h1 style={{ margin: 0, fontSize: '1.1rem' }}>Monolith CMS</h1>
+          <p style={{ margin: 0, fontSize: 12, color: '#888' }}>{elements.length} elements auto-discovered</p>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={loadContent} style={{ padding: '8px 14px', background: '#222', color: '#fff', border: 0, borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>Refresh</button>
+          <button onClick={() => router.push('/')} style={{ padding: '8px 14px', background: '#4edea3', color: '#000', border: 0, borderRadius: 6, cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>View site →</button>
+        </div>
+      </header>
+
+      <div style={{ padding: '1.5rem', maxWidth: 900, margin: '0 auto' }}>
+        {elements.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '3rem', background: '#111', border: '1px solid #222', borderRadius: 12 }}>
+            <p style={{ fontSize: '1.1rem', margin: 0, marginBottom: 8 }}>No content yet</p>
+            <p style={{ color: '#888', margin: 0, fontSize: 14 }}>Visit any page on your site — the CMS auto-discovers editable elements on load.</p>
           </div>
         )}
-        {content?.elements && (
-          <div style={{ display: 'grid', gap: '1rem', maxWidth: '800px' }}>
-            {Object.values(content.elements).map(el => (
-              <div key={el.id} style={{ backgroundColor: '#1a1a1a', padding: '1.5rem', borderRadius: '8px', border: '1px solid #333' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '1rem' }}>
-                  <div>
-                    <h3 style={{ fontWeight: 'bold' }}>{el.label || el.id}</h3>
-                    <p style={{ color: '#888', fontSize: '0.75rem' }}>{el.type} • {el.tag}</p>
-                  </div>
-                  <span style={{ padding: '0.25rem 0.5rem', backgroundColor: el.published ? '#4edea3' : '#666', color: el.published ? '#000' : '#fff', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold' }}>
-                    {el.published ? 'PUBLISHED' : 'DRAFT'}
-                  </span>
-                </div>
-                {editingId === el.id ? (
-                  <div>
-                    <textarea value={editValue} onChange={(e) => setEditValue(e.target.value)} style={{ width: '100%', padding: '0.75rem', backgroundColor: '#0a0a0a', border: '1px solid #333', borderRadius: '6px', color: '#fff', minHeight: '100px', marginBottom: '0.5rem' }} />
-                    <button onClick={() => handleSave(el.id, { text: editValue })} style={{ padding: '0.5rem 1rem', backgroundColor: '#4edea3', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', marginRight: '0.5rem' }}>Save</button>
-                    <button onClick={() => setEditingId(null)} style={{ padding: '0.5rem 1rem', backgroundColor: '#333', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Cancel</button>
-                  </div>
-                ) : (
-                  <div>
-                    <p style={{ color: '#ccc', marginBottom: '0.75rem', fontStyle: !el.content?.text ? 'italic' : 'normal' }}>{el.content?.text || '(empty)'}</p>
-                    <button onClick={() => startEdit(el)} style={{ padding: '0.5rem 1rem', backgroundColor: '#333', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>✏️ Edit</button>
-                  </div>
-                )}
-              </div>
+
+        {pages.length > 1 && (
+          <div style={{ marginBottom: 16, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button onClick={() => setFilter('all')} style={{ padding: '6px 12px', background: filter === 'all' ? '#4edea3' : '#222', color: filter === 'all' ? '#000' : '#fff', border: 0, borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+              All ({elements.length})
+            </button>
+            {pages.map((p) => (
+              <button key={p} onClick={() => setFilter(p)} style={{ padding: '6px 12px', background: filter === p ? '#4edea3' : '#222', color: filter === p ? '#000' : '#fff', border: 0, borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>
+                {p} ({elements.filter((e) => (e.page || '/') === p).length})
+              </button>
             ))}
           </div>
         )}
+
+        <div style={{ display: 'grid', gap: 12 }}>
+          {filtered.map((el) => (
+            <div key={el.id} style={{ background: '#111', border: '1px solid #222', borderRadius: 10, padding: '1rem 1.25rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10, gap: 12 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11, color: '#888', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 }}>
+                    {el.tag} · {el.type} · {el.page || '/'}
+                  </div>
+                  <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{el.label || el.id}</div>
+                </div>
+                <button onClick={() => togglePublish(el)} style={{ padding: '4px 10px', background: el.published ? '#4edea3' : '#444', color: el.published ? '#000' : '#fff', border: 0, borderRadius: 4, fontSize: 11, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
+                  {el.published ? 'PUBLISHED' : 'DRAFT'}
+                </button>
+              </div>
+
+              {editingId === el.id ? (
+                <div>
+                  {el.type === 'image' ? (
+                    <>
+                      <input value={editValue.src || ''} onChange={(e) => setEditValue({ ...editValue, src: e.target.value })} placeholder="Image URL"
+                        style={{ width: '100%', padding: 10, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', marginBottom: 8, boxSizing: 'border-box' }} />
+                      <input value={editValue.alt || ''} onChange={(e) => setEditValue({ ...editValue, alt: e.target.value })} placeholder="Alt text"
+                        style={{ width: '100%', padding: 10, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', marginBottom: 8, boxSizing: 'border-box' }} />
+                    </>
+                  ) : el.type === 'link' ? (
+                    <>
+                      <input value={editValue.text || ''} onChange={(e) => setEditValue({ ...editValue, text: e.target.value })} placeholder="Link text"
+                        style={{ width: '100%', padding: 10, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', marginBottom: 8, boxSizing: 'border-box' }} />
+                      <input value={editValue.href || ''} onChange={(e) => setEditValue({ ...editValue, href: e.target.value })} placeholder="https://…"
+                        style={{ width: '100%', padding: 10, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', marginBottom: 8, boxSizing: 'border-box' }} />
+                    </>
+                  ) : (
+                    <textarea value={editValue.text || ''} onChange={(e) => setEditValue({ ...editValue, text: e.target.value })}
+                      style={{ width: '100%', minHeight: 90, padding: 10, background: '#0a0a0a', border: '1px solid #333', borderRadius: 6, color: '#fff', marginBottom: 8, fontFamily: 'inherit', boxSizing: 'border-box', resize: 'vertical' }} />
+                  )}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => handleSave(el.id, editValue)} style={{ padding: '8px 16px', background: '#4edea3', color: '#000', border: 0, borderRadius: 6, fontWeight: 700, cursor: 'pointer' }}>Save</button>
+                    <button onClick={() => setEditingId(null)} style={{ padding: '8px 16px', background: '#333', color: '#fff', border: 0, borderRadius: 6, cursor: 'pointer' }}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ color: '#bbb', fontSize: 14, marginBottom: 10, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {el.type === 'image'
+                      ? (el.content?.src || '(no image)')
+                      : (el.content?.text || '(empty)')}
+                  </div>
+                  <button onClick={() => startEdit(el)} style={{ padding: '6px 14px', background: '#222', color: '#fff', border: '1px solid #333', borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>Edit</button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
 }
 EOFCMS
 
-echo -e "${BLUE}📝 Step 4/6: Creating/updating _document.js...${NC}"
-
-# Create or update _document.js
+echo -e "${BLUE}Step 4/6: Wiring up _document.js (auto-injecting CMS client)...${NC}"
 if [ ! -f "pages/_document.js" ]; then
   cat > pages/_document.js << 'EOFDOC'
 import { Html, Head, Main, NextScript } from 'next/document'
 
 export default function Document() {
   return (
-    <Html lang="de">
+    <Html>
       <Head />
       <body>
         <Main />
         <NextScript />
-        {/* CMS Client - Auto-updating from CDN */}
-        <script src="https://cdn.jsdelivr.net/gh/zundIO/emergent-cms@main/public/cms-client.js" />
+        <script src="/cms-client.js" defer />
       </body>
     </Html>
   )
 }
 EOFDOC
-  echo "  ✓ Created pages/_document.js with auto-updating CMS client"
+  echo "  Created pages/_document.js"
 else
-  # Check if cms-client.js is already included
   if ! grep -q "cms-client.js" pages/_document.js; then
-    echo "  ⚠️  Please add <script src=\"https://cdn.jsdelivr.net/gh/zundIO/emergent-cms@main/public/cms-client.js\" /> to your pages/_document.js"
+    # Try to inject the script tag before </body>
+    if grep -q "</body>" pages/_document.js; then
+      sed -i.bak 's|</body>|        <script src="/cms-client.js" defer />\n      </body>|' pages/_document.js
+      rm -f pages/_document.js.bak
+      echo "  Patched pages/_document.js (added cms-client.js)"
+    else
+      echo -e "  ${YELLOW}Could not auto-patch _document.js. Add <script src=\"/cms-client.js\" defer /> manually.${NC}"
+    fi
   else
-    echo "  ✓ cms-client.js already included in _document.js"
+    echo "  cms-client.js already in _document.js"
   fi
 fi
 
-echo -e "${BLUE}📦 Step 5/6: Installing dependencies...${NC}"
-npm install bcryptjs jose jsdom
+echo -e "${BLUE}Step 5/6: Installing dependencies (bcryptjs, jose)...${NC}"
+if command -v yarn >/dev/null 2>&1 && [ -f "yarn.lock" ]; then
+  yarn add bcryptjs jose --silent 2>/dev/null || yarn add bcryptjs jose
+else
+  npm install bcryptjs jose --silent
+fi
 
-echo -e "${BLUE}🔐 Step 6/6: Setting up environment...${NC}"
-
+echo -e "${BLUE}Step 6/6: Preparing environment...${NC}"
 if [ ! -f ".env.local" ]; then
   cat > .env.local << 'EOFENV'
-# Monolith CMS Configuration
-# First admin will be created on first /cms visit
-# DO NOT commit this file to Git!
+# Monolith CMS - admin credentials are created on first /cms visit
+# DO NOT commit this file to Git
 EOFENV
-  echo "  ✓ Created .env.local (admin setup required on first visit)"
-else
-  echo "  ✓ .env.local already exists"
+  echo "  Created .env.local"
+fi
+
+# Make sure cms-data is gitignored
+if [ -f ".gitignore" ]; then
+  grep -qxF "cms-data/" .gitignore || echo "cms-data/" >> .gitignore
+  grep -qxF ".env.local" .gitignore || echo ".env.local" >> .gitignore
 fi
 
 echo ""
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}  ✅ MONOLITH CMS INSTALLED SUCCESSFULLY!${NC}"
+echo -e "${GREEN}  MONOLITH CMS installed successfully${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo -e "${BLUE}📋 Next Steps:${NC}"
-echo ""
-echo "  1. Add data-cms-id to editable elements:"
-echo "     <h1 data-cms-id=\"hero\">Your text</h1>"
-echo ""
-echo "  2. Start dev server:"
-echo "     npm run dev"
-echo ""
-echo "  3. Open CMS for FIRST-TIME SETUP:"
-echo "     http://localhost:3000/cms"
-echo ""
-echo "  4. Create your first admin user"
-echo "     (Email, Name, Password - min 8 characters)"
-echo ""
-echo "  5. Click 'Sync' to discover all data-cms-id elements"
-echo ""
-echo -e "${BLUE}🔒 Security:${NC}"
-echo "  - Never commit .env.local to Git!"
-echo "  - Use a strong password (min 8 characters)"
-echo "  - Change password in production"
-echo ""
-echo -e "${BLUE}📚 Documentation:${NC}"
-echo "  https://github.com/${REPO}"
+echo "  Open your site and visit /cms"
+echo "  -> First visit creates your admin password (setup wizard)"
+echo "  -> Then browse any page once — elements auto-appear in the CMS"
 echo ""
