@@ -1,52 +1,59 @@
 # Monolith CMS — Embedded Edition
 
-**Zero-config** content management for any Next.js site. No manual attribution. No separate server. One command to install.
+**Zero-config CMS** for any website built with Emergent or Next.js. One command installs. No manual code changes. Auto-updates.
 
 ## Install
 
-In the root of any Next.js project:
+From the project root:
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/zundIO/emergent-cms/main/install.sh)"
 ```
 
-That's it.
+The installer auto-detects your stack:
 
-## How it works
+| Stack detected | What gets installed |
+|---|---|
+| **Emergent** (`backend/server.py` + `frontend/package.json`) | FastAPI router under `/api/cms/*`, admin UI at `/api/cms/admin`, browser client auto-injected into `index.html` |
+| **Next.js** (`package.json` with `next`) | API routes in `pages/api/cms/*`, editor at `/cms`, client auto-injected into `_document.js` |
 
-1. The installer drops a tiny CMS (~10 files) into your project:
-   - `pages/cms.js` — admin editor page
-   - `pages/api/cms/*` — backend routes (auth, content, register, setup, public)
-   - `lib/cms/*` — storage + auth helpers
-   - `public/cms-client.js` — runtime auto-discovery script
-   - `cms-data/content.json` — file-based content store (gitignored)
+## What it does
 
-2. The client script is auto-injected into `pages/_document.js`.
+1. Drops ~8 files into your project (never touches existing app code beyond a single `include_router` line / script tag).
+2. Adds a tiny browser script that walks the DOM, assigns stable `data-cms-id`s to every editable element (h1–h6, p, a, button, img, li, …), and reports them back.
+3. First visit to the admin UI runs a setup wizard that creates your admin password.
+4. Every element you see on the site is editable from the admin panel — no source changes.
 
-3. On every page load the client walks the DOM, assigns stable `data-cms-id`
-   attributes to all editable elements (h1–h6, p, a, button, img, li, …), and
-   reports them to `/api/cms/register`. No source changes. No manual tagging.
+## Admin access
 
-4. Open `/cms` → on first visit the setup wizard creates your admin password,
-   then every auto-discovered element is ready to edit.
+- **Emergent stack**: `https://<your-domain>/api/cms/admin`
+- **Next.js stack**: `https://<your-domain>/cms`
 
-## Requirements
+## Self-updates
 
-- Next.js project (pages router)
-- Node 18+
-- `bcryptjs` and `jose` will be installed automatically
+Whenever the upstream repo receives a new commit:
+
+- The browser client (`cms-client.js`) is loaded directly from GitHub via CDN and auto-updates within ~5 minutes — every installation, everywhere.
+- The admin panel shows an **"Update CMS"** button that pulls the latest server-side code with one click. Restart the backend (or redeploy) to activate it.
+
+User content (`cms-data/`) and secrets (`.cms-env.json`) are never touched by updates.
 
 ## Security
 
-- `.env.local` and `cms-data/` are automatically added to `.gitignore`
 - Admin password is bcrypt-hashed
-- JWT secret is auto-generated per installation
-- Never commit `.env.local`
+- JWT session cookie, HttpOnly, 7-day expiry
+- `cms-data/` is auto-added to `.gitignore`
+- Auto-discovery endpoint only ADDS metadata — never overwrites saved content
 
 ## Uninstall
 
 ```bash
-rm -rf pages/cms.js pages/api/cms lib/cms public/cms-client.js cms-data
+# Emergent stack
+rm -rf backend/cms frontend/public/cms-client.js cms-data
+# Revert the include_router line in backend/server.py manually
+
+# Next.js stack
+rm -rf lib/cms pages/api/cms pages/cms.js public/cms-client.js cms-data .env.local
 ```
 
 ## License

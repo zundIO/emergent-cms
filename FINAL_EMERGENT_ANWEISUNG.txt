@@ -1,8 +1,8 @@
 ════════════════════════════════════════════════════════════════════════════════
-MONOLITH CMS — EMERGENT INSTALLATION (Zero-Config)
+MONOLITH CMS — EMERGENT INSTALLATION (Zero-Config, Universal)
 ════════════════════════════════════════════════════════════════════════════════
 
-Kopiere die folgenden zwei Zeilen und gib sie Emergent:
+Kopiere EINE Zeile und gib sie Emergent:
 
 ────────────────────────────────────────────────────────────────────────────────
 
@@ -12,13 +12,19 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/zundIO/emergent-cms/main
 
 ────────────────────────────────────────────────────────────────────────────────
 
-DAS WAR'S. Keine weiteren Schritte nötig.
+WICHTIG: Sage Emergent ausdrücklich, NICHTS zu adaptieren oder umzuschreiben.
+Der Installer erkennt den Stack (React+FastAPI oder Next.js) automatisch
+und installiert die passende Version.
 
 Nach der Installation:
-  • Öffne  http(s)://<deine-domain>/cms
-  • Beim ersten Aufruf: Admin-Passwort setzen (Setup-Wizard)
+  • Admin-UI:   https://<deine-domain>/api/cms/admin
+  • Erster Aufruf: Admin-Passwort setzen (Setup-Wizard)
   • Danach: Elemente erscheinen automatisch im Editor,
-    sobald Besucher (oder du) irgendeine Seite laden.
+    sobald du (oder Besucher) irgendeine Seite laden.
 
 Keine data-cms-id Attribute. Keine Konfiguration. Kein manuelles Taggen.
+
+Future Updates: `git push` ins emergent-cms Repo
+  • Browser-Client wird automatisch aktualisiert (~5 Min CDN-Cache)
+  • Server-Code: Admin sieht "Update CMS" Button im /api/cms/admin Panel
 ════════════════════════════════════════════════════════════════════════════════
