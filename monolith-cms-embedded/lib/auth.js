@@ -10,24 +10,23 @@ const JWT_SECRET = new TextEncoder().encode(
   process.env.CMS_SECRET || 'monolith-cms-secret-change-in-production-min-32-chars'
 );
 
-const ADMIN_PASSWORD = process.env.CMS_ADMIN_PASSWORD || 'admin123';
-
 /**
  * Verify password
  */
 export async function verifyPassword(password) {
-  // For simplicity: direct comparison in dev, bcrypt in production
-  if (process.env.NODE_ENV === 'development' && !ADMIN_PASSWORD.startsWith('$2')) {
-    return password === ADMIN_PASSWORD;
+  const adminPassword = process.env.CMS_ADMIN_PASSWORD;
+  
+  if (!adminPassword) {
+    throw new Error('Setup required');
   }
   
-  // Bcrypt comparison
-  try {
-    return await bcrypt.compare(password, ADMIN_PASSWORD);
-  } catch (err) {
-    // Fallback for non-hashed passwords
-    return password === ADMIN_PASSWORD;
+  // Check if password is hashed (bcrypt format)
+  if (adminPassword.startsWith('$2')) {
+    return await bcrypt.compare(password, adminPassword);
   }
+  
+  // Plain text fallback (for backward compatibility)
+  return password === adminPassword;
 }
 
 /**

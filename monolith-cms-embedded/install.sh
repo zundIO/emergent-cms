@@ -235,19 +235,13 @@ echo -e "${BLUE}🔐 Step 6/6: Setting up environment...${NC}"
 
 if [ ! -f ".env.local" ]; then
   cat > .env.local << 'EOFENV'
-CMS_ADMIN_PASSWORD=admin123
-CMS_SECRET=monolith-cms-secret-change-this-to-random-string-min-32-chars
+# Monolith CMS Configuration
+# First admin will be created on first /cms visit
+# DO NOT commit this file to Git!
 EOFENV
-  echo "  ✓ Created .env.local with default password"
+  echo "  ✓ Created .env.local (admin setup required on first visit)"
 else
-  if ! grep -q "CMS_ADMIN_PASSWORD" .env.local; then
-    echo "" >> .env.local
-    echo "CMS_ADMIN_PASSWORD=admin123" >> .env.local
-    echo "CMS_SECRET=monolith-cms-secret-change-this-to-random-string-min-32-chars" >> .env.local
-    echo "  ✓ Added CMS variables to .env.local"
-  else
-    echo "  ✓ CMS variables already in .env.local"
-  fi
+  echo "  ✓ .env.local already exists"
 fi
 
 echo ""
@@ -263,13 +257,18 @@ echo ""
 echo "  2. Start dev server:"
 echo "     npm run dev"
 echo ""
-echo "  3. Open CMS:"
+echo "  3. Open CMS for FIRST-TIME SETUP:"
 echo "     http://localhost:3000/cms"
 echo ""
-echo "  4. Login with password: admin123"
-echo "     (Change in .env.local)"
+echo "  4. Create your first admin user"
+echo "     (Email, Name, Password - min 8 characters)"
 echo ""
 echo "  5. Click 'Sync' to discover all data-cms-id elements"
+echo ""
+echo -e "${BLUE}🔒 Security:${NC}"
+echo "  - Never commit .env.local to Git!"
+echo "  - Use a strong password (min 8 characters)"
+echo "  - Change password in production"
 echo ""
 echo -e "${BLUE}📚 Documentation:${NC}"
 echo "  https://github.com/${REPO}"
