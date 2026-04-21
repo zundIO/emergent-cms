@@ -1,0 +1,608 @@
+═══════════════════════════════════════════════════════════════════
+MONOLITH CMS - EMBEDDED EDITION
+Komplette Installation für Next.js Websites
+═══════════════════════════════════════════════════════════════════
+
+INSTALLATION STEPS:
+
+1. DEPENDENCIES INSTALLIEREN
+----------------------------
+npm install bcryptjs jose jsdom
+
+2. ORDNER-STRUKTUR ERSTELLEN
+---------------------------
+Erstelle folgende Ordner:
+- lib/cms/
+- pages/api/cms/
+- cms-data/
+
+3. DATEIEN ERSTELLEN
+-------------------
+
+=== DATEI: lib/cms/storage.js ===
+/**
+ * Monolith CMS - File-based Storage Layer
+ * Speichert Content als JSON files in cms-data/
+ */
+
+import fs from 'fs';
+import path from 'path';
+
+const CMS_DATA_DIR = path.join(process.cwd(), 'cms-data');
+const CONTENT_FILE = path.join(CMS_DATA_DIR, 'content.json');
+const CONFIG_FILE = path.join(CMS_DATA_DIR, '.cms-config.json');
+
+// Ensure cms-data directory exists
+function ensureDataDir() {
+  if (!fs.existsSync(CMS_DATA_DIR)) {
+    fs.mkdirSync(CMS_DATA_DIR, { recursive: true });
+  }
+  if (!fs.existsSync(CONTENT_FILE)) {
+    fs.writeFileSync(CONTENT_FILE, JSON.stringify({ elements: {}, version: 1 }, null, 2));
+  }
+  if (!fs.existsSync(CONFIG_FILE)) {
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify({ 
+      initialized: new Date().toISOString(),
+      auto_discover: true 
+    }, null, 2));
+  }
+}
+
+/**
+ * Get all content
+ */
+export function getContent() {
+  ensureDataDir();
+  const data = fs.readFileSync(CONTENT_FILE, 'utf-8');
+  return JSON.parse(data);
+}
+
+/**
+ * Save content
+ */
+export function saveContent(content) {
+  ensureDataDir();
+  const data = {
+    elements: content.elements || {},
+    version: (content.version || 0) + 1,
+    updated_at: new Date().toISOString()
+  };
+  fs.writeFileSync(CONTENT_FILE, JSON.stringify(data, null, 2));
+  return data;
+}
+
+/**
+ * Get single element
+ */
+export function getElement(elementId) {
+  const content = getContent();
+  return content.elements[elementId] || null;
+}
+
+/**
+ * Update single element
+ */
+export function updateElement(elementId, elementData) {
+  const content = getContent();
+  content.elements[elementId] = {
+    ...content.elements[elementId],
+    ...elementData,
+    updated_at: new Date().toISOString()
+  };
+  return saveContent(content);
+}
+
+/**
+ * Get published content only (for public API)
+ */
+export function getPublishedContent() {
+  const content = getContent();
+  const published = {};
+  
+  Object.entries(content.elements).forEach(([id, element]) => {
+    if (element.published !== false) {
+      published[id] = element;
+    }
+  });
+  
+  return published;
+}
+
+/**
+ * Merge discovered elements with existing content
+ * Keeps existing content, adds new elements
+ */
+export function mergeElements(discoveredElements) {
+  const content = getContent();
+  let newCount = 0;
+  
+  discoveredElements.forEach(element => {
+    if (!content.elements[element.id]) {
+      // New element - add with default content
+      content.elements[element.id] = {
+        ...element,
+        published: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      newCount++;
+    } else {
+      // Existing element - update metadata but keep content
+      content.elements[element.id] = {
+        ...content.elements[element.id],
+        type: element.type,
+        label: element.label || content.elements[element.id].label,
+        tag: element.tag || content.elements[element.id].tag
+      };
+    }
+  });
+  
+  saveContent(content);
+  return { merged: discoveredElements.length, new: newCount };
+}
+
+/**
+ * Get config
+ */
+export function getConfig() {
+  ensureDataDir();
+  const data = fs.readFileSync(CONFIG_FILE, 'utf-8');
+  return JSON.parse(data);
+}
+
+/**
+ * Save config
+ */
+export function saveConfig(config) {
+  ensureDataDir();
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+  return config;
+}
+
+=== DATEI: lib/cms/auth.js ===
+/**
+ * Monolith CMS - Simple Auth System
+ * Password-based authentication with JWT
+ */
+
+import bcrypt from 'bcryptjs';
+import { SignJWT, jwtVerify } from 'jose';
+
+const JWT_SECRET = new TextEncoder().encode(
+  process.env.CMS_SECRET || 'monolith-cms-secret-change-in-production-min-32-chars'
+);
+
+const ADMIN_PASSWORD = process.env.CMS_ADMIN_PASSWORD || 'admin123';
+
+/**
+ * Verify password
+ */
+export async function verifyPassword(password) {
+  // For simplicity: direct comparison in dev, bcrypt in production
+  if (process.env.NODE_ENV === 'development' && !ADMIN_PASSWORD.startsWith('$2')) {
+    return password === ADMIN_PASSWORD;
+  }
+  
+  // Bcrypt comparison
+  try {
+    return await bcrypt.compare(password, ADMIN_PASSWORD);
+  } catch (err) {
+    // Fallback for non-hashed passwords
+    return password === ADMIN_PASSWORD;
+  }
+}
+
+/**
+ * Create JWT token
+ */
+export async function createToken() {
+  const token = await new SignJWT({ role: 'admin' })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('7d')
+    .sign(JWT_SECRET);
+  
+  return token;
+}
+
+/**
+ * Verify JWT token
+ */
+export async function verifyToken(token) {
+  try {
+    const { payload } = await jwtVerify(token, JWT_SECRET);
+    return payload;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Get token from request headers or cookies
+ */
+export function getTokenFromRequest(req) {
+  // Check Authorization header
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authHeader.substring(7);
+  }
+  
+  // Check cookie
+  const cookies = req.headers.cookie?.split(';').reduce((acc, cookie) => {
+    const [key, value] = cookie.trim().split('=');
+    acc[key] = value;
+    return acc;
+  }, {});
+  
+  return cookies?.['cms-token'] || null;
+}
+
+/**
+ * Middleware: Require authentication
+ */
+export async function requireAuth(req) {
+  const token = getTokenFromRequest(req);
+  if (!token) {
+    throw new Error('Unauthorized');
+  }
+  
+  const payload = await verifyToken(token);
+  if (!payload) {
+    throw new Error('Invalid token');
+  }
+  
+  return payload;
+}
+
+=== DATEI: pages/api/cms/auth.js ===
+/**
+ * CMS Auth API
+ * POST /api/cms/auth/login - Login
+ * GET /api/cms/auth/me - Check session
+ */
+
+import { verifyPassword, createToken, verifyToken, getTokenFromRequest } from '../../../lib/cms/auth';
+
+export default async function handler(req, res) {
+  // Login
+  if (req.method === 'POST') {
+    const { password } = req.body;
+    
+    if (!password) {
+      return res.status(400).json({ error: 'Password required' });
+    }
+    
+    const valid = await verifyPassword(password);
+    if (!valid) {
+      return res.status(401).json({ error: 'Invalid password' });
+    }
+    
+    const token = await createToken();
+    
+    // Set cookie
+    res.setHeader('Set-Cookie', `cms-token=${token}; HttpOnly; Path=/; Max-Age=${7 * 24 * 60 * 60}; SameSite=Strict`);
+    
+    return res.json({ success: true, token });
+  }
+  
+  // Check session
+  if (req.method === 'GET') {
+    const token = getTokenFromRequest(req);
+    if (!token) {
+      return res.status(401).json({ authenticated: false });
+    }
+    
+    const payload = await verifyToken(token);
+    if (!payload) {
+      return res.status(401).json({ authenticated: false });
+    }
+    
+    return res.json({ authenticated: true, role: payload.role });
+  }
+  
+  // Logout
+  if (req.method === 'DELETE') {
+    res.setHeader('Set-Cookie', 'cms-token=; HttpOnly; Path=/; Max-Age=0');
+    return res.json({ success: true });
+  }
+  
+  return res.status(405).json({ error: 'Method not allowed' });
+}
+/**
+ * CMS Content API (Admin only)
+ * GET /api/cms/content - Get all content
+ * PUT /api/cms/content - Save content
+ * PATCH /api/cms/content/:id - Update single element
+ */
+
+import { requireAuth } from '../../../lib/cms/auth';
+import { getContent, saveContent, updateElement } from '../../../lib/cms/storage';
+
+export default async function handler(req, res) {
+  // Require authentication
+  try {
+    await requireAuth(req);
+  } catch (err) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  
+  // Get all content
+  if (req.method === 'GET') {
+    const content = getContent();
+    return res.json(content);
+  }
+  
+  // Save content
+  if (req.method === 'PUT') {
+    const { elements } = req.body;
+    
+    if (!elements) {
+      return res.status(400).json({ error: 'Elements required' });
+    }
+    
+    const updated = saveContent({ elements });
+    return res.json({ success: true, version: updated.version });
+  }
+  
+  // Update single element
+  if (req.method === 'PATCH') {
+    const { id, ...elementData } = req.body;
+    
+    if (!id) {
+      return res.status(400).json({ error: 'Element ID required' });
+    }
+    
+    const updated = updateElement(id, elementData);
+    return res.json({ success: true, version: updated.version });
+  }
+  
+  return res.status(405).json({ error: 'Method not allowed' });
+}
+/**
+ * CMS Auto-Discovery API
+ * POST /api/cms/discover - Scan website for data-cms-id elements
+ */
+
+import { requireAuth } from '../../../lib/cms/auth';
+import { mergeElements } from '../../../lib/cms/storage';
+import { JSDOM } from 'jsdom';
+
+export default async function handler(req, res) {
+  // Require authentication
+  try {
+    await requireAuth(req);
+  } catch (err) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  
+  const { url } = req.body;
+  
+  if (!url) {
+    return res.status(400).json({ error: 'URL required' });
+  }
+  
+  try {
+    // Fetch the page
+    const response = await fetch(url);
+    const html = await response.text();
+    
+    // Parse HTML
+    const dom = new JSDOM(html);
+    const document = dom.window.document;
+    
+    // Find all elements with data-cms-id
+    const elements = document.querySelectorAll('[data-cms-id]');
+    const discovered = [];
+    
+    elements.forEach(el => {
+      const id = el.getAttribute('data-cms-id');
+      const tag = el.tagName.toLowerCase();
+      
+      let type = 'text';
+      if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tag)) {
+        type = 'heading';
+      } else if (tag === 'p') {
+        type = 'paragraph';
+      } else if (tag === 'img') {
+        type = 'image';
+      } else if (tag === 'a') {
+        type = 'link';
+      } else if (tag === 'button' || (tag === 'a' && el.getAttribute('role') === 'button')) {
+        type = 'button';
+      }
+      
+      const element = {
+        id,
+        type,
+        tag,
+        label: el.getAttribute('data-cms-label') || id.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+        content: {}
+      };
+      
+      // Extract default content
+      if (type === 'image') {
+        element.content.src = el.getAttribute('src') || '';
+        element.content.alt = el.getAttribute('alt') || '';
+      } else if (type === 'link' || type === 'button') {
+        element.content.text = el.textContent.trim();
+        element.content.href = el.getAttribute('href') || '#';
+      } else {
+        element.content.text = el.textContent.trim();
+      }
+      
+      discovered.push(element);
+    });
+    
+    // Merge with existing content
+    const result = mergeElements(discovered);
+    
+    return res.json({
+      success: true,
+      discovered: discovered.length,
+      merged: result.merged,
+      new: result.new,
+      elements: discovered
+    });
+    
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to discover elements', message: err.message });
+  }
+}
+/**
+ * CMS Public Content API (No auth required)
+ * GET /api/cms/public - Get published content
+ */
+
+import { getPublishedContent } from '../../../lib/cms/storage';
+
+export default async function handler(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  
+  // Enable CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET');
+  res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=300');
+  
+  const content = getPublishedContent();
+  return res.json(content);
+}
+/**
+ * Monolith CMS - Client Script (Embedded Edition)
+ * Lädt Content vom lokalen CMS und wendet ihn an
+ */
+(function() {
+  'use strict';
+
+  // Configuration
+  var API_URL = '/api/cms/public';
+  var CACHE_KEY = 'monolith-cms-content';
+  var CACHE_VERSION_KEY = 'monolith-cms-version';
+  var CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+  /**
+   * Get cached content
+   */
+  function getCachedContent() {
+    try {
+      var cached = localStorage.getItem(CACHE_KEY);
+      var cachedAt = localStorage.getItem(CACHE_VERSION_KEY);
+      
+      if (cached && cachedAt) {
+        var age = Date.now() - parseInt(cachedAt, 10);
+        if (age < CACHE_DURATION) {
+          return JSON.parse(cached);
+        }
+      }
+    } catch (err) {
+      console.warn('[Monolith CMS] Cache read error:', err);
+    }
+    return null;
+  }
+
+  /**
+   * Cache content
+   */
+  function cacheContent(content) {
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify(content));
+      localStorage.setItem(CACHE_VERSION_KEY, Date.now().toString());
+    } catch (err) {
+      console.warn('[Monolith CMS] Cache write error:', err);
+    }
+  }
+
+  /**
+   * Apply content to elements
+   */
+  function applyContent(content) {
+    if (!content) return;
+
+    var elements = document.querySelectorAll('[data-cms-id]');
+    var applied = 0;
+
+    elements.forEach(function(el) {
+      var cmsId = el.getAttribute('data-cms-id');
+      var entry = content[cmsId];
+      
+      if (!entry || !entry.content) return;
+
+      var contentData = entry.content;
+      var tag = el.tagName.toLowerCase();
+
+      // Apply content based on element type
+      if (tag === 'img') {
+        if (contentData.src) el.src = contentData.src;
+        if (contentData.alt) el.alt = contentData.alt;
+      } else if (tag === 'a' || tag === 'button') {
+        if (contentData.text) el.textContent = contentData.text;
+        if (contentData.href && tag === 'a') el.href = contentData.href;
+      } else if (contentData.text !== undefined) {
+        el.textContent = contentData.text;
+      }
+
+      applied++;
+    });
+
+    console.log('[Monolith CMS] Applied', applied, 'content updates');
+    
+    // Dispatch event
+    window.dispatchEvent(new CustomEvent('monolith-cms-loaded', { 
+      detail: { content, applied } 
+    }));
+  }
+
+  /**
+   * Load content from CMS
+   */
+  function loadContent() {
+    // Try cache first
+    var cached = getCachedContent();
+    if (cached) {
+      console.log('[Monolith CMS] Loaded from cache');
+      applyContent(cached);
+      return;
+    }
+
+    // Fetch from API
+    fetch(API_URL)
+      .then(function(res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+      })
+      .then(function(content) {
+        console.log('[Monolith CMS] Loaded from API');
+        cacheContent(content);
+        applyContent(content);
+      })
+      .catch(function(err) {
+        console.warn('[Monolith CMS] Failed to load content:', err.message);
+      });
+  }
+
+  // Initialize when DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadContent);
+  } else {
+    loadContent();
+  }
+
+  // Expose API for manual refresh
+  window.MonolithCMS = {
+    refresh: function() {
+      localStorage.removeItem(CACHE_KEY);
+      localStorage.removeItem(CACHE_VERSION_KEY);
+      loadContent();
+    },
+    clearCache: function() {
+      localStorage.removeItem(CACHE_KEY);
+      localStorage.removeItem(CACHE_VERSION_KEY);
+    }
+  };
+
+})();
