@@ -1,0 +1,36 @@
+════════════════════════════════════════════════════════════════════════════════
+MONOLITH CMS - INSTALLATION FÜR EMERGENT
+════════════════════════════════════════════════════════════════════════════════
+
+KOMPLETTE ANWEISUNG (Kopiere alles und gib es Emergent):
+
+────────────────────────────────────────────────────────────────────────────────
+
+Installiere das Monolith CMS mit diesem Befehl:
+
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/zundIO/emergent-cms/main/install.sh)"
+
+Nach erfolgreicher Installation:
+
+1. Füge zu ALLEN editierbaren Elementen das data-cms-id Attribut hinzu:
+
+   <h1 data-cms-id="hero-headline">Willkommen</h1>
+   <p data-cms-id="hero-description">Beschreibung</p>
+   <img data-cms-id="hero-image" src="/hero.jpg" alt="Hero" />
+   <a data-cms-id="cta-button" href="/kontakt">Kontakt</a>
+   <button data-cms-id="submit-btn">Absenden</button>
+
+   WICHTIG: Jede ID muss einzigartig sein!
+
+2. Das CMS ist dann erreichbar unter: /cms
+   Login-Passwort steht in .env.local (Standard: admin123)
+
+────────────────────────────────────────────────────────────────────────────────
+
+DAS WAR'S! 🚀
+
+Nach Installation:
+- Website: http://localhost:3000/
+- CMS Editor: http://localhost:3000/cms
+
+════════════════════════════════════════════════════════════════════════════════

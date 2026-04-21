@@ -1,0 +1,597 @@
+════════════════════════════════════════════════════════════════════════════════
+MONOLITH CMS - SELF-CONTAINED INSTALLATION
+════════════════════════════════════════════════════════════════════════════════
+
+SCHRITT 1: Dependencies installieren
+────────────────────────────────────
+npm install bcryptjs jose jsdom
+
+
+SCHRITT 2: Ordner erstellen
+───────────────────────────
+Erstelle folgende Ordner:
+- lib/cms/
+- pages/api/cms/
+- cms-data/
+
+
+SCHRITT 3: Dateien erstellen
+────────────────────────────
+
+=== DATEI: lib/cms/storage.js ===
+Erstelle lib/cms/storage.js mit folgendem Inhalt:
+
+```javascript
+import fs from 'fs';
+import path from 'path';
+
+const CMS_DATA_DIR = path.join(process.cwd(), 'cms-data');
+const CONTENT_FILE = path.join(CMS_DATA_DIR, 'content.json');
+
+function ensureDataDir() {
+  if (!fs.existsSync(CMS_DATA_DIR)) {
+    fs.mkdirSync(CMS_DATA_DIR, { recursive: true });
+  }
+  if (!fs.existsSync(CONTENT_FILE)) {
+    fs.writeFileSync(CONTENT_FILE, JSON.stringify({ elements: {}, version: 1 }, null, 2));
+  }
+}
+
+export function getContent() {
+  ensureDataDir();
+  const data = fs.readFileSync(CONTENT_FILE, 'utf-8');
+  return JSON.parse(data);
+}
+
+export function saveContent(content) {
+  ensureDataDir();
+  const data = {
+    elements: content.elements || {},
+    version: (content.version || 0) + 1,
+    updated_at: new Date().toISOString()
+  };
+  fs.writeFileSync(CONTENT_FILE, JSON.stringify(data, null, 2));
+  return data;
+}
+
+export function updateElement(elementId, elementData) {
+  const content = getContent();
+  content.elements[elementId] = {
+    ...content.elements[elementId],
+    ...elementData,
+    updated_at: new Date().toISOString()
+  };
+  return saveContent(content);
+}
+
+export function getPublishedContent() {
+  const content = getContent();
+  const published = {};
+  Object.entries(content.elements).forEach(([id, element]) => {
+    if (element.published !== false) {
+      published[id] = element;
+    }
+  });
+  return published;
+}
+
+export function mergeElements(discoveredElements) {
+  const content = getContent();
+  let newCount = 0;
+  
+  discoveredElements.forEach(element => {
+    if (!content.elements[element.id]) {
+      content.elements[element.id] = {
+        ...element,
+        published: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+      newCount++;
+    }
+  });
+  
+  saveContent(content);
+  return { merged: discoveredElements.length, new: newCount };
+}
+```
+
+
+=== DATEI: lib/cms/auth.js ===
+Erstelle lib/cms/auth.js mit folgendem Inhalt:
+
+```javascript
+import bcrypt from 'bcryptjs';
+import { SignJWT, jwtVerify } from 'jose';
+
+const JWT_SECRET = new TextEncoder().encode(
+  process.env.CMS_SECRET || 'monolith-cms-secret-min-32-chars'
+);
+
+export async function verifyPassword(password) {
+  const adminPassword = process.env.CMS_ADMIN_PASSWORD || 'admin123';
+  if (process.env.NODE_ENV === 'development') {
+    return password === adminPassword;
+  }
+  try {
+    return await bcrypt.compare(password, adminPassword);
+  } catch {
+    return password === adminPassword;
+  }
+}
+
+export async function createToken() {
+  return await new SignJWT({ role: 'admin' })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setExpirationTime('7d')
+    .sign(JWT_SECRET);
+}
+
+export async function verifyToken(token) {
+  try {
+    const { payload } = await jwtVerify(token, JWT_SECRET);
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+export function getTokenFromRequest(req) {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.substring(7);
+  }
+  const cookies = req.headers.cookie?.split(';').reduce((acc, cookie) => {
+    const [key, value] = cookie.trim().split('=');
+    acc[key] = value;
+    return acc;
+  }, {});
+  return cookies?.['cms-token'] || null;
+}
+
+export async function requireAuth(req) {
+  const token = getTokenFromRequest(req);
+  if (!token) throw new Error('Unauthorized');
+  const payload = await verifyToken(token);
+  if (!payload) throw new Error('Invalid token');
+  return payload;
+}
+```
+
+
+=== DATEI: pages/api/cms/auth.js ===
+Erstelle pages/api/cms/auth.js:
+
+```javascript
+import { verifyPassword, createToken, verifyToken, getTokenFromRequest } from '../../../lib/cms/auth';
+
+export default async function handler(req, res) {
+  if (req.method === 'POST') {
+    const { password } = req.body;
+    if (!password) return res.status(400).json({ error: 'Password required' });
+    
+    const valid = await verifyPassword(password);
+    if (!valid) return res.status(401).json({ error: 'Invalid password' });
+    
+    const token = await createToken();
+    res.setHeader('Set-Cookie', `cms-token=${token}; HttpOnly; Path=/; Max-Age=${7 * 24 * 60 * 60}; SameSite=Strict`);
+    return res.json({ success: true, token });
+  }
+  
+  if (req.method === 'GET') {
+    const token = getTokenFromRequest(req);
+    if (!token) return res.status(401).json({ authenticated: false });
+    const payload = await verifyToken(token);
+    return res.json({ authenticated: !!payload, role: payload?.role });
+  }
+  
+  return res.status(405).json({ error: 'Method not allowed' });
+}
+```
+
+
+=== DATEI: pages/api/cms/content.js ===
+Erstelle pages/api/cms/content.js:
+
+```javascript
+import { requireAuth } from '../../../lib/cms/auth';
+import { getContent, saveContent, updateElement } from '../../../lib/cms/storage';
+
+export default async function handler(req, res) {
+  try {
+    await requireAuth(req);
+  } catch {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  
+  if (req.method === 'GET') {
+    return res.json(getContent());
+  }
+  
+  if (req.method === 'PUT') {
+    const { elements } = req.body;
+    if (!elements) return res.status(400).json({ error: 'Elements required' });
+    const updated = saveContent({ elements });
+    return res.json({ success: true, version: updated.version });
+  }
+  
+  if (req.method === 'PATCH') {
+    const { id, ...elementData } = req.body;
+    if (!id) return res.status(400).json({ error: 'Element ID required' });
+    const updated = updateElement(id, elementData);
+    return res.json({ success: true, version: updated.version });
+  }
+  
+  return res.status(405).json({ error: 'Method not allowed' });
+}
+```
+
+
+=== DATEI: pages/api/cms/discover.js ===
+Erstelle pages/api/cms/discover.js:
+
+```javascript
+import { requireAuth } from '../../../lib/cms/auth';
+import { mergeElements } from '../../../lib/cms/storage';
+import { JSDOM } from 'jsdom';
+
+export default async function handler(req, res) {
+  try {
+    await requireAuth(req);
+  } catch {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  
+  const { url } = req.body;
+  if (!url) return res.status(400).json({ error: 'URL required' });
+  
+  try {
+    const response = await fetch(url);
+    const html = await response.text();
+    const dom = new JSDOM(html);
+    const elements = dom.window.document.querySelectorAll('[data-cms-id]');
+    const discovered = [];
+    
+    elements.forEach(el => {
+      const id = el.getAttribute('data-cms-id');
+      const tag = el.tagName.toLowerCase();
+      let type = 'text';
+      
+      if (['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tag)) type = 'heading';
+      else if (tag === 'p') type = 'paragraph';
+      else if (tag === 'img') type = 'image';
+      else if (tag === 'a') type = 'link';
+      else if (tag === 'button') type = 'button';
+      
+      const element = {
+        id,
+        type,
+        tag,
+        label: id.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()),
+        content: {}
+      };
+      
+      if (type === 'image') {
+        element.content.src = el.getAttribute('src') || '';
+        element.content.alt = el.getAttribute('alt') || '';
+      } else if (type === 'link' || type === 'button') {
+        element.content.text = el.textContent.trim();
+        element.content.href = el.getAttribute('href') || '#';
+      } else {
+        element.content.text = el.textContent.trim();
+      }
+      
+      discovered.push(element);
+    });
+    
+    const result = mergeElements(discovered);
+    return res.json({
+      success: true,
+      discovered: discovered.length,
+      new: result.new,
+      elements: discovered
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to discover', message: err.message });
+  }
+}
+```
+
+
+=== DATEI: pages/api/cms/public.js ===
+Erstelle pages/api/cms/public.js:
+
+```javascript
+import { getPublishedContent } from '../../../lib/cms/storage';
+
+export default async function handler(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Cache-Control', 'public, max-age=60');
+  
+  return res.json(getPublishedContent());
+}
+```
+
+
+=== DATEI: public/cms-client.js ===
+Erstelle public/cms-client.js:
+
+```javascript
+(function() {
+  'use strict';
+  var API_URL = '/api/cms/public';
+  var CACHE_KEY = 'monolith-cms-content';
+  var CACHE_DURATION = 5 * 60 * 1000;
+
+  function getCached() {
+    try {
+      var cached = localStorage.getItem(CACHE_KEY);
+      var cachedAt = localStorage.getItem(CACHE_KEY + '-time');
+      if (cached && cachedAt && (Date.now() - parseInt(cachedAt)) < CACHE_DURATION) {
+        return JSON.parse(cached);
+      }
+    } catch(e) {}
+    return null;
+  }
+
+  function cache(content) {
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify(content));
+      localStorage.setItem(CACHE_KEY + '-time', Date.now().toString());
+    } catch(e) {}
+  }
+
+  function apply(content) {
+    if (!content) return;
+    var elements = document.querySelectorAll('[data-cms-id]');
+    var applied = 0;
+
+    elements.forEach(function(el) {
+      var cmsId = el.getAttribute('data-cms-id');
+      var entry = content[cmsId];
+      if (!entry?.content) return;
+
+      var data = entry.content;
+      var tag = el.tagName.toLowerCase();
+
+      if (tag === 'img') {
+        if (data.src) el.src = data.src;
+        if (data.alt) el.alt = data.alt;
+      } else if (tag === 'a' || tag === 'button') {
+        if (data.text) el.textContent = data.text;
+        if (data.href && tag === 'a') el.href = data.href;
+      } else if (data.text !== undefined) {
+        el.textContent = data.text;
+      }
+      applied++;
+    });
+
+    console.log('[CMS] Applied', applied, 'updates');
+  }
+
+  function load() {
+    var cached = getCached();
+    if (cached) {
+      apply(cached);
+      return;
+    }
+
+    fetch(API_URL)
+      .then(function(r) { return r.json(); })
+      .then(function(content) {
+        cache(content);
+        apply(content);
+      })
+      .catch(function(err) {
+        console.warn('[CMS] Failed to load:', err);
+      });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', load);
+  } else {
+    load();
+  }
+})();
+```
+
+
+=== DATEI: pages/cms.js ===
+Erstelle pages/cms.js (CMS Editor UI):
+
+```javascript
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
+
+export default function CMSEditor() {
+  const router = useRouter();
+  const [authenticated, setAuthenticated] = useState(false);
+  const [password, setPassword] = useState('');
+  const [content, setContent] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState(null);
+  const [editValue, setEditValue] = useState('');
+
+  useEffect(() => {
+    fetch('/api/cms/auth').then(r => r.json()).then(data => {
+      setAuthenticated(data.authenticated);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { if (authenticated) loadContent(); }, [authenticated]);
+
+  const loadContent = () => {
+    fetch('/api/cms/content').then(r => r.json()).then(setContent);
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    const res = await fetch('/api/cms/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    if (res.ok) { setAuthenticated(true); setPassword(''); } else alert('Ungültiges Passwort');
+  };
+
+  const handleDiscover = async () => {
+    const res = await fetch('/api/cms/discover', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: window.location.origin })
+    });
+    const data = await res.json();
+    alert(`Gefunden: ${data.discovered} Elemente (${data.new} neu)`);
+    loadContent();
+  };
+
+  const handleSave = async (elementId, newContent) => {
+    await fetch('/api/cms/content', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: elementId, content: newContent, published: true })
+    });
+    loadContent();
+    setEditingId(null);
+    alert('Gespeichert!');
+  };
+
+  if (loading) return <div style={{padding:'2rem'}}>Lädt...</div>;
+
+  if (!authenticated) {
+    return (
+      <div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',backgroundColor:'#0a0a0a'}}>
+        <div style={{backgroundColor:'#1a1a1a',padding:'3rem',borderRadius:'12px',width:'100%',maxWidth:'400px',border:'1px solid #333'}}>
+          <h1 style={{fontSize:'2rem',fontWeight:'bold',marginBottom:'0.5rem',color:'#fff'}}>Monolith CMS</h1>
+          <p style={{color:'#888',marginBottom:'2rem',fontSize:'0.875rem'}}>Embedded Edition</p>
+          <form onSubmit={handleLogin}>
+            <input type="password" value={password} onChange={(e)=>setPassword(e.target.value)} placeholder="Passwort"
+              style={{width:'100%',padding:'0.75rem',marginBottom:'1rem',backgroundColor:'#0a0a0a',border:'1px solid #333',borderRadius:'6px',color:'#fff'}} required />
+            <button type="submit" style={{width:'100%',padding:'0.75rem',backgroundColor:'#4edea3',color:'#000',border:'none',borderRadius:'6px',fontWeight:'bold',cursor:'pointer'}}>Login</button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{minHeight:'100vh',backgroundColor:'#0a0a0a',color:'#fff'}}>
+      <div style={{backgroundColor:'#1a1a1a',borderBottom:'1px solid #333',padding:'1rem 2rem',display:'flex',justifyContent:'space-between'}}>
+        <div>
+          <h1 style={{fontSize:'1.5rem',fontWeight:'bold'}}>Monolith CMS</h1>
+          <p style={{color:'#888',fontSize:'0.875rem'}}>{content?.elements ? Object.keys(content.elements).length : 0} Elemente</p>
+        </div>
+        <div style={{display:'flex',gap:'1rem'}}>
+          <button onClick={handleDiscover} style={{padding:'0.5rem 1rem',backgroundColor:'#333',color:'#fff',border:'none',borderRadius:'6px',cursor:'pointer'}}>🔍 Sync</button>
+          <button onClick={()=>router.push('/')} style={{padding:'0.5rem 1rem',backgroundColor:'#4edea3',color:'#000',border:'none',borderRadius:'6px',fontWeight:'bold',cursor:'pointer'}}>Website →</button>
+        </div>
+      </div>
+      <div style={{padding:'2rem'}}>
+        {!content?.elements && (
+          <div style={{textAlign:'center',padding:'3rem',backgroundColor:'#1a1a1a',borderRadius:'12px'}}>
+            <p style={{fontSize:'1.25rem',marginBottom:'1rem'}}>Kein Content</p>
+            <p style={{color:'#888',marginBottom:'2rem'}}>Klicke "Sync" um Elemente zu finden</p>
+            <button onClick={handleDiscover} style={{padding:'0.75rem 1.5rem',backgroundColor:'#4edea3',color:'#000',border:'none',borderRadius:'6px',fontWeight:'bold',cursor:'pointer'}}>Jetzt Sync</button>
+          </div>
+        )}
+        {content?.elements && (
+          <div style={{display:'grid',gap:'1rem',maxWidth:'800px'}}>
+            {Object.values(content.elements).map(el=>(
+              <div key={el.id} style={{backgroundColor:'#1a1a1a',padding:'1.5rem',borderRadius:'8px',border:'1px solid #333'}}>
+                <div style={{display:'flex',justifyContent:'space-between',marginBottom:'1rem'}}>
+                  <div>
+                    <h3 style={{fontWeight:'bold'}}>{el.label||el.id}</h3>
+                    <p style={{color:'#888',fontSize:'0.75rem'}}>{el.type} • {el.tag}</p>
+                  </div>
+                  <span style={{padding:'0.25rem 0.5rem',backgroundColor:el.published?'#4edea3':'#666',color:el.published?'#000':'#fff',borderRadius:'4px',fontSize:'0.75rem',fontWeight:'bold'}}>
+                    {el.published?'PUBLISHED':'DRAFT'}
+                  </span>
+                </div>
+                {editingId===el.id ? (
+                  <div>
+                    <textarea value={editValue} onChange={(e)=>setEditValue(e.target.value)} style={{width:'100%',padding:'0.75rem',backgroundColor:'#0a0a0a',border:'1px solid #333',borderRadius:'6px',color:'#fff',minHeight:'100px',marginBottom:'0.5rem'}} />
+                    <button onClick={()=>handleSave(el.id,{text:editValue})} style={{padding:'0.5rem 1rem',backgroundColor:'#4edea3',color:'#000',border:'none',borderRadius:'6px',fontWeight:'bold',marginRight:'0.5rem',cursor:'pointer'}}>Speichern</button>
+                    <button onClick={()=>setEditingId(null)} style={{padding:'0.5rem 1rem',backgroundColor:'#333',color:'#fff',border:'none',borderRadius:'6px',cursor:'pointer'}}>Abbrechen</button>
+                  </div>
+                ):(
+                  <div>
+                    <p style={{color:'#ccc',marginBottom:'0.75rem',fontStyle:!el.content?.text?'italic':'normal'}}>{el.content?.text||'(leer)'}</p>
+                    <button onClick={()=>{setEditingId(el.id);setEditValue(el.content?.text||'');}} style={{padding:'0.5rem 1rem',backgroundColor:'#333',color:'#fff',border:'none',borderRadius:'6px',cursor:'pointer'}}>✏️ Bearbeiten</button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+
+=== DATEI: pages/_document.js ===
+Erstelle oder erweitere pages/_document.js:
+
+```javascript
+import { Html, Head, Main, NextScript } from 'next/document'
+
+export default function Document() {
+  return (
+    <Html lang="de">
+      <Head />
+      <body>
+        <Main />
+        <NextScript />
+        <script src="/cms-client.js" />
+      </body>
+    </Html>
+  )
+}
+```
+
+
+SCHRITT 4: Environment Variables
+─────────────────────────────────
+Erstelle .env.local:
+
+```
+CMS_ADMIN_PASSWORD=admin123
+CMS_SECRET=monolith-cms-secret-change-this-min-32-chars
+```
+
+
+SCHRITT 5: data-cms-id hinzufügen
+──────────────────────────────────
+Füge zu ALLEN editierbaren Elementen data-cms-id hinzu:
+
+<h1 data-cms-id="hero-headline">Willkommen</h1>
+<p data-cms-id="hero-description">Beschreibung</p>
+<img data-cms-id="hero-image" src="/hero.jpg" alt="Hero" />
+<a data-cms-id="cta-button" href="/kontakt">Kontakt</a>
+
+WICHTIG: Jede ID muss unique sein!
+
+
+════════════════════════════════════════════════════════════════════════════════
+✅ FERTIG!
+
+Nach Installation:
+1. Start dev server: npm run dev
+2. Öffne CMS: http://localhost:3000/cms
+3. Login: admin123
+4. Klicke "Sync" → Findet alle Elemente
+5. Bearbeite Content → Save
+6. Refresh Website → Änderungen sichtbar!
+
+════════════════════════════════════════════════════════════════════════════════

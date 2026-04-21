@@ -1,0 +1,36 @@
+{
+  "name": "@monolith/cms-embedded",
+  "version": "1.0.0",
+  "description": "Plug & Play Content Management System for Next.js websites - No separate hosting needed",
+  "main": "index.js",
+  "keywords": [
+    "cms",
+    "content-management",
+    "nextjs",
+    "embedded",
+    "headless-cms",
+    "file-based"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "peerDependencies": {
+    "next": ">=12.0.0",
+    "react": ">=17.0.0"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "jose": "^5.1.3",
+    "jsdom": "^23.0.1"
+  },
+  "scripts": {
+    "postinstall": "echo '\n✅ Monolith CMS installed successfully!\n\nNext steps:\n1. Read: ./node_modules/@monolith/cms-embedded/EMERGENT_INSTALL.md\n2. Or manually copy files from ./node_modules/@monolith/cms-embedded/\n3. Set environment variables in .env.local\n4. Add data-cms-id to editable elements\n5. Include <script src=\"/cms-client.js\" /> in your pages/_document.js\n\nDocumentation: ./node_modules/@monolith/cms-embedded/README.md\n'"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/monolith-cms-embedded"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/monolith-cms-embedded/issues"
+  },
+  "homepage": "https://github.com/your-username/monolith-cms-embedded#readme"
+}

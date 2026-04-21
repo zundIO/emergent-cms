@@ -1,0 +1,38 @@
+# Ignore sensitive data
+.env
+.env.local
+.env.production
+
+# CMS content and user data
+cms-data/
+cms-data/*.json
+
+# Node modules
+node_modules/
+
+# Build output
+.next/
+out/
+build/
+dist/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+coverage/
+.nyc_output/

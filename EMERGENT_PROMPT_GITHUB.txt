@@ -1,0 +1,405 @@
+═══════════════════════════════════════════════════════════════════
+MONOLITH CMS - EMBEDDED EDITION
+Komplette Installation für Next.js Websites
+═══════════════════════════════════════════════════════════════════
+
+📋 WAS DU BRAUCHST:
+- Next.js Website (Emergent Standard)
+- Node.js 18+
+
+🎯 WAS EMERGENT TUN SOLL:
+
+SCHRITT 1: Dependencies installieren
+────────────────────────────────────
+npm install bcryptjs jose jsdom
+
+
+SCHRITT 2: CMS von GitHub laden
+───────────────────────────────
+Lade alle CMS-Dateien von:
+https://github.com/zundIO/monolith-cms-embedded
+
+Erstelle folgende Ordner und Dateien:
+
+lib/cms/storage.js       → Von: https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/lib/storage.js
+lib/cms/auth.js          → Von: https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/lib/auth.js
+pages/api/cms/auth.js    → Von: https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/pages/api/cms/auth.js
+pages/api/cms/content.js → Von: https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/pages/api/cms/content.js
+pages/api/cms/discover.js→ Von: https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/pages/api/cms/discover.js
+pages/api/cms/public.js  → Von: https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/pages/api/cms/public.js
+public/cms-client.js     → Von: https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/public/cms-client.js
+
+Erstelle außerdem:
+- cms-data/ (leerer Ordner)
+
+
+SCHRITT 3: CMS Editor Page erstellen
+────────────────────────────────────
+Erstelle pages/cms.js mit folgendem Inhalt:
+
+```javascript
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
+
+export default function CMSEditor() {
+  const router = useRouter();
+  const [authenticated, setAuthenticated] = useState(false);
+  const [password, setPassword] = useState('');
+  const [content, setContent] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [editingId, setEditingId] = useState(null);
+  const [editValue, setEditValue] = useState('');
+
+  useEffect(() => {
+    fetch('/api/cms/auth')
+      .then(r => r.json())
+      .then(data => {
+        setAuthenticated(data.authenticated);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (authenticated) {
+      loadContent();
+    }
+  }, [authenticated]);
+
+  const loadContent = () => {
+    fetch('/api/cms/content')
+      .then(r => r.json())
+      .then(data => setContent(data))
+      .catch(err => alert('Failed to load content'));
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('/api/cms/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password })
+      });
+      
+      if (res.ok) {
+        setAuthenticated(true);
+        setPassword('');
+      } else {
+        alert('Invalid password');
+      }
+    } catch (err) {
+      alert('Login failed');
+    }
+  };
+
+  const handleDiscover = async () => {
+    const siteUrl = window.location.origin;
+    try {
+      const res = await fetch('/api/cms/discover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: siteUrl })
+      });
+      
+      const data = await res.json();
+      alert(`Discovered ${data.discovered} elements (${data.new} new)`);
+      loadContent();
+    } catch (err) {
+      alert('Discovery failed');
+    }
+  };
+
+  const handleSave = async (elementId, newContent) => {
+    try {
+      await fetch('/api/cms/content', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: elementId,
+          content: newContent,
+          published: true
+        })
+      });
+      
+      loadContent();
+      setEditingId(null);
+      alert('Saved!');
+    } catch (err) {
+      alert('Save failed');
+    }
+  };
+
+  const startEdit = (element) => {
+    setEditingId(element.id);
+    setEditValue(element.content?.text || '');
+  };
+
+  if (loading) {
+    return <div style={{ padding: '2rem' }}>Loading...</div>;
+  }
+
+  if (!authenticated) {
+    return (
+      <div style={{ 
+        minHeight: '100vh', 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center',
+        backgroundColor: '#0a0a0a'
+      }}>
+        <div style={{
+          backgroundColor: '#1a1a1a',
+          padding: '3rem',
+          borderRadius: '12px',
+          width: '100%',
+          maxWidth: '400px',
+          border: '1px solid #333'
+        }}>
+          <h1 style={{ fontSize: '2rem', fontWeight: 'bold', marginBottom: '0.5rem', color: '#fff' }}>
+            Monolith CMS
+          </h1>
+          <p style={{ color: '#888', marginBottom: '2rem', fontSize: '0.875rem' }}>
+            Embedded Edition
+          </p>
+          
+          <form onSubmit={handleLogin}>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Admin Password"
+              style={{
+                width: '100%',
+                padding: '0.75rem',
+                marginBottom: '1rem',
+                backgroundColor: '#0a0a0a',
+                border: '1px solid #333',
+                borderRadius: '6px',
+                color: '#fff',
+                fontSize: '1rem'
+              }}
+              required
+            />
+            
+            <button
+              type="submit"
+              style={{
+                width: '100%',
+                padding: '0.75rem',
+                backgroundColor: '#4edea3',
+                color: '#000',
+                border: 'none',
+                borderRadius: '6px',
+                fontWeight: 'bold',
+                fontSize: '1rem',
+                cursor: 'pointer'
+              }}
+            >
+              Login
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', backgroundColor: '#0a0a0a', color: '#fff' }}>
+      <div style={{
+        backgroundColor: '#1a1a1a',
+        borderBottom: '1px solid #333',
+        padding: '1rem 2rem',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }}>
+        <div>
+          <h1 style={{ fontSize: '1.5rem', fontWeight: 'bold' }}>Monolith CMS</h1>
+          <p style={{ color: '#888', fontSize: '0.875rem' }}>
+            {content?.elements ? Object.keys(content.elements).length : 0} Elements
+          </p>
+        </div>
+        
+        <div style={{ display: 'flex', gap: '1rem' }}>
+          <button onClick={handleDiscover} style={{
+            padding: '0.5rem 1rem', backgroundColor: '#333', color: '#fff', 
+            border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.875rem'
+          }}>
+            🔍 Sync Website
+          </button>
+          
+          <button onClick={() => router.push('/')} style={{
+            padding: '0.5rem 1rem', backgroundColor: '#4edea3', color: '#000', 
+            border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.875rem'
+          }}>
+            View Website →
+          </button>
+        </div>
+      </div>
+
+      <div style={{ padding: '2rem' }}>
+        {!content?.elements && (
+          <div style={{
+            textAlign: 'center', padding: '3rem', backgroundColor: '#1a1a1a',
+            borderRadius: '12px', border: '1px solid #333'
+          }}>
+            <p style={{ fontSize: '1.25rem', marginBottom: '1rem' }}>No content found</p>
+            <p style={{ color: '#888', marginBottom: '2rem' }}>
+              Click "Sync Website" to discover editable elements
+            </p>
+            <button onClick={handleDiscover} style={{
+              padding: '0.75rem 1.5rem', backgroundColor: '#4edea3', color: '#000',
+              border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold'
+            }}>
+              Sync Now
+            </button>
+          </div>
+        )}
+
+        {content?.elements && (
+          <div style={{ display: 'grid', gap: '1rem', maxWidth: '800px' }}>
+            {Object.values(content.elements).map(element => (
+              <div key={element.id} style={{
+                backgroundColor: '#1a1a1a', padding: '1.5rem',
+                borderRadius: '8px', border: '1px solid #333'
+              }}>
+                <div style={{
+                  display: 'flex', justifyContent: 'space-between',
+                  alignItems: 'start', marginBottom: '1rem'
+                }}>
+                  <div>
+                    <h3 style={{ fontWeight: 'bold', marginBottom: '0.25rem' }}>
+                      {element.label || element.id}
+                    </h3>
+                    <p style={{ color: '#888', fontSize: '0.75rem' }}>
+                      {element.type} • {element.tag}
+                    </p>
+                  </div>
+                  
+                  <span style={{
+                    padding: '0.25rem 0.5rem',
+                    backgroundColor: element.published ? '#4edea3' : '#666',
+                    color: element.published ? '#000' : '#fff',
+                    borderRadius: '4px', fontSize: '0.75rem', fontWeight: 'bold'
+                  }}>
+                    {element.published ? 'PUBLISHED' : 'DRAFT'}
+                  </span>
+                </div>
+
+                {editingId === element.id ? (
+                  <div>
+                    <textarea value={editValue} onChange={(e) => setEditValue(e.target.value)} style={{
+                      width: '100%', padding: '0.75rem', backgroundColor: '#0a0a0a',
+                      border: '1px solid #333', borderRadius: '6px', color: '#fff',
+                      fontSize: '1rem', minHeight: '100px', fontFamily: 'inherit', marginBottom: '0.5rem'
+                    }} />
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <button onClick={() => handleSave(element.id, { text: editValue })} style={{
+                        padding: '0.5rem 1rem', backgroundColor: '#4edea3', color: '#000',
+                        border: 'none', borderRadius: '6px', cursor: 'pointer',
+                        fontWeight: 'bold', fontSize: '0.875rem'
+                      }}>
+                        Save
+                      </button>
+                      <button onClick={() => setEditingId(null)} style={{
+                        padding: '0.5rem 1rem', backgroundColor: '#333', color: '#fff',
+                        border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.875rem'
+                      }}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <p style={{ 
+                      color: '#ccc', marginBottom: '0.75rem',
+                      fontStyle: !element.content?.text ? 'italic' : 'normal'
+                    }}>
+                      {element.content?.text || '(empty)'}
+                    </p>
+                    <button onClick={() => startEdit(element)} style={{
+                      padding: '0.5rem 1rem', backgroundColor: '#333', color: '#fff',
+                      border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '0.875rem'
+                    }}>
+                      ✏️ Edit
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+```
+
+
+SCHRITT 4: _document.js erstellen/anpassen
+─────────────────────────────────────────
+Erstelle oder erweitere pages/_document.js:
+
+```javascript
+import { Html, Head, Main, NextScript } from 'next/document'
+
+export default function Document() {
+  return (
+    <Html lang="de">
+      <Head />
+      <body>
+        <Main />
+        <NextScript />
+        <script src="/cms-client.js" />
+      </body>
+    </Html>
+  )
+}
+```
+
+
+SCHRITT 5: Environment Variables
+────────────────────────────────
+Erstelle .env.local:
+
+```
+CMS_ADMIN_PASSWORD=admin123
+CMS_SECRET=monolith-cms-secret-change-this-min-32-chars
+```
+
+
+SCHRITT 6: data-cms-id zu Elementen hinzufügen
+──────────────────────────────────────────────
+Füge zu ALLEN editierbaren Elementen data-cms-id hinzu:
+
+```jsx
+<h1 data-cms-id="hero-headline">Willkommen</h1>
+<p data-cms-id="hero-description">Beschreibung</p>
+<img data-cms-id="hero-image" src="/hero.jpg" alt="Hero" />
+<a data-cms-id="cta-button" href="/kontakt">Kontakt</a>
+```
+
+WICHTIG: Jede ID muss unique sein!
+
+
+═══════════════════════════════════════════════════════════════════
+✅ FERTIG! Das CMS ist installiert.
+
+ZUGRIFF:
+- Editor: https://deine-website.com/cms
+- Login: Passwort aus .env.local
+- API: https://deine-website.com/api/cms/public
+
+WORKFLOW:
+1. Öffne /cms
+2. Login
+3. Klicke "Sync Website" → CMS findet alle data-cms-id Elemente
+4. Bearbeite Content
+5. Save
+6. Besuche Website → Content ist aktualisiert!
+
+═══════════════════════════════════════════════════════════════════
+
+GitHub Repository für Details:
+https://github.com/zundIO/monolith-cms-embedded
