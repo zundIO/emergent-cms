@@ -17,17 +17,17 @@ npm install bcryptjs jose jsdom
 SCHRITT 2: CMS von GitHub laden
 ───────────────────────────────
 Lade alle CMS-Dateien von:
-https://github.com/[DEIN-USERNAME]/monolith-cms-embedded
+https://github.com/zundIO/monolith-cms-embedded
 
 Erstelle folgende Ordner und Dateien:
 
-lib/cms/storage.js       → Von: https://raw.githubusercontent.com/[DEIN-USERNAME]/monolith-cms-embedded/main/lib/storage.js
-lib/cms/auth.js          → Von: https://raw.githubusercontent.com/[DEIN-USERNAME]/monolith-cms-embedded/main/lib/auth.js
-pages/api/cms/auth.js    → Von: https://raw.githubusercontent.com/[DEIN-USERNAME]/monolith-cms-embedded/main/pages/api/cms/auth.js
-pages/api/cms/content.js → Von: https://raw.githubusercontent.com/[DEIN-USERNAME]/monolith-cms-embedded/main/pages/api/cms/content.js
-pages/api/cms/discover.js→ Von: https://raw.githubusercontent.com/[DEIN-USERNAME]/monolith-cms-embedded/main/pages/api/cms/discover.js
-pages/api/cms/public.js  → Von: https://raw.githubusercontent.com/[DEIN-USERNAME]/monolith-cms-embedded/main/pages/api/cms/public.js
-public/cms-client.js     → Von: https://raw.githubusercontent.com/[DEIN-USERNAME]/monolith-cms-embedded/main/public/cms-client.js
+lib/cms/storage.js       → Von: https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/lib/storage.js
+lib/cms/auth.js          → Von: https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/lib/auth.js
+pages/api/cms/auth.js    → Von: https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/pages/api/cms/auth.js
+pages/api/cms/content.js → Von: https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/pages/api/cms/content.js
+pages/api/cms/discover.js→ Von: https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/pages/api/cms/discover.js
+pages/api/cms/public.js  → Von: https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/pages/api/cms/public.js
+public/cms-client.js     → Von: https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/public/cms-client.js
 
 Erstelle außerdem:
 - cms-data/ (leerer Ordner)
@@ -402,4 +402,4 @@ WORKFLOW:
 ═══════════════════════════════════════════════════════════════════
 
 GitHub Repository für Details:
-https://github.com/[DEIN-USERNAME]/monolith-cms-embedded
+https://github.com/zundIO/monolith-cms-embedded

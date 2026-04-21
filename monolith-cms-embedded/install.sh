@@ -1,6 +1,6 @@
 #!/bin/bash
 # Monolith CMS - One-Command Installation
-# Usage: curl -sSL https://raw.githubusercontent.com/YOUR_USERNAME/monolith-cms-embedded/main/install.sh | bash
+# Usage: curl -sSL https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/install.sh | bash
 
 set -e
 
@@ -11,7 +11,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 # Configuration
-REPO="YOUR_USERNAME/monolith-cms-embedded"
+REPO="zundIO/monolith-cms-embedded"
 BRANCH="main"
 BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
 

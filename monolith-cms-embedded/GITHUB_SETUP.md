@@ -23,15 +23,15 @@ git init
 git add .
 git commit -m "Initial commit: Monolith CMS Embedded v1.0"
 
-# Ersetze 'dein-username' mit deinem GitHub Username:
-git remote add origin https://github.com/dein-username/monolith-cms-embedded.git
+# Ersetze 'zundIO' mit deinem GitHub Username:
+git remote add origin https://github.com/zundIO/monolith-cms-embedded.git
 git branch -M main
 git push -u origin main
 ```
 
 ### 1.3 Verifizierung
 
-Öffne: `https://github.com/dein-username/monolith-cms-embedded`
+Öffne: `https://github.com/zundIO/monolith-cms-embedded`
 
 Du solltest sehen:
 ```
@@ -58,9 +58,9 @@ https://raw.githubusercontent.com/USERNAME/REPO/main/PFAD/DATEI
 
 **Deine URLs:**
 ```
-https://raw.githubusercontent.com/dein-username/monolith-cms-embedded/main/lib/storage.js
-https://raw.githubusercontent.com/dein-username/monolith-cms-embedded/main/lib/auth.js
-https://raw.githubusercontent.com/dein-username/monolith-cms-embedded/main/pages/api/cms/auth.js
+https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/lib/storage.js
+https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/lib/auth.js
+https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/pages/api/cms/auth.js
 ...
 ```
 
@@ -85,14 +85,14 @@ https://raw.githubusercontent.com/dein-username/monolith-cms-embedded/main/pages
 Installiere Monolith CMS von GitHub:
 
 1. Lade Installation-Script:
-   curl -o install-cms.sh https://raw.githubusercontent.com/dein-username/monolith-cms-embedded/main/install.sh
+   curl -o install-cms.sh https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/install.sh
    chmod +x install-cms.sh
    ./install-cms.sh
 
 2. Oder manuell:
    - Erstelle Ordner: lib/cms/, pages/api/cms/, public/
    - Lade Dateien von:
-     https://github.com/dein-username/monolith-cms-embedded/tree/main
+     https://github.com/zundIO/monolith-cms-embedded/tree/main
    
 3. Installiere Dependencies:
    npm install bcryptjs jose jsdom
@@ -107,7 +107,7 @@ Installiere Monolith CMS von GitHub:
 6. Binde Client-Script ein in pages/_document.js:
    <script src="/cms-client.js" />
 
-Details: https://github.com/dein-username/monolith-cms-embedded
+Details: https://github.com/zundIO/monolith-cms-embedded
 ```
 
 ---
@@ -122,7 +122,7 @@ Erstelle `install.sh` in deinem Repository:
 
 echo "📦 Installing Monolith CMS..."
 
-REPO="dein-username/monolith-cms-embedded"
+REPO="zundIO/monolith-cms-embedded"
 BASE_URL="https://raw.githubusercontent.com/${REPO}/main"
 
 # Create directories
@@ -204,7 +204,7 @@ Für professionelle Nutzung:
 ```bash
 # 1. In package.json: Name anpassen
 {
-  "name": "@dein-username/monolith-cms-embedded",
+  "name": "@zundIO/monolith-cms-embedded",
   "version": "1.0.0",
   ...
 }
@@ -216,7 +216,7 @@ npm login
 npm publish --access public
 
 # 4. Installation für User:
-npm install @dein-username/monolith-cms-embedded
+npm install @zundIO/monolith-cms-embedded
 ```
 
 ---
@@ -236,12 +236,12 @@ Vor dem Pushen zu GitHub:
 
 ## 📝 Deine URLs (Template)
 
-Ersetze `dein-username` mit deinem GitHub Username:
+Ersetze `zundIO` mit deinem GitHub Username:
 
 ```
-Repository: https://github.com/dein-username/monolith-cms-embedded
-Clone: git clone https://github.com/dein-username/monolith-cms-embedded.git
-Install: curl -sSL https://raw.githubusercontent.com/dein-username/monolith-cms-embedded/main/install.sh | bash
+Repository: https://github.com/zundIO/monolith-cms-embedded
+Clone: git clone https://github.com/zundIO/monolith-cms-embedded.git
+Install: curl -sSL https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/install.sh | bash
 ```
 
 ---

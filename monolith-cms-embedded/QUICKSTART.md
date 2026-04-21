@@ -9,8 +9,8 @@ git init
 git add .
 git commit -m "Monolith CMS v1.0"
 
-# Ersetze 'dein-username' mit deinem GitHub Username:
-git remote add origin https://github.com/dein-username/monolith-cms-embedded.git
+# Ersetze 'zundIO' mit deinem GitHub Username:
+git remote add origin https://github.com/zundIO/monolith-cms-embedded.git
 git push -u origin main
 ```
 
@@ -42,7 +42,7 @@ git push -u origin main
 Gib Emergent:
 
 "Installiere Monolith CMS von GitHub:
-https://github.com/dein-username/monolith-cms-embedded
+https://github.com/zundIO/monolith-cms-embedded
 
 Befolge die Anleitung in EMERGENT_PROMPT_GITHUB.txt"
 ```
@@ -102,11 +102,11 @@ Save → Veröffentlicht!
 ### Deine GitHub URLs (Template)
 ```
 Repository: 
-https://github.com/dein-username/monolith-cms-embedded
+https://github.com/zundIO/monolith-cms-embedded
 
 Raw Files:
-https://raw.githubusercontent.com/dein-username/monolith-cms-embedded/main/lib/storage.js
-https://raw.githubusercontent.com/dein-username/monolith-cms-embedded/main/lib/auth.js
+https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/lib/storage.js
+https://raw.githubusercontent.com/zundIO/monolith-cms-embedded/main/lib/auth.js
 ... (usw.)
 ```
 
