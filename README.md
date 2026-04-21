@@ -26,7 +26,9 @@ The installer auto-detects your stack:
 
 ## Admin access
 
-- **Emergent stack**: `https://<your-domain>/api/cms/admin`
+After installation, open:
+
+- **Emergent stack**: `https://<your-domain>/cms`  _(redirects to `/api/cms/admin`)_
 - **Next.js stack**: `https://<your-domain>/cms`
 
 ## Self-updates

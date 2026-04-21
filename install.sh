@@ -143,20 +143,30 @@ print("  server.py patched")
 PYFIX
   fi
 
-  log "Step 6/6 · Injecting browser client into frontend/public/index.html…"
+  log "Step 6/6 · Injecting browser client + /cms shortcut into frontend/public/index.html…"
   INDEX="frontend/public/index.html"
   if [ -f "$INDEX" ] && ! grep -q "cms-client.js" "$INDEX"; then
     python3 - <<PYHTML
 import pathlib
 p = pathlib.Path("$INDEX")
 s = p.read_text()
-snippet = '    <script src="${BASE_URL}/public/cms-client.js" defer></script>\n  </body>'
+
+# 1) Short-URL redirect in <head>: /cms  ->  /api/cms/admin
+head_snippet = '''  <script>
+    // Monolith CMS — /cms shortcut
+    (function(){ var p=location.pathname; if(p==='/cms'||p==='/cms/') location.replace('/api/cms/admin'+location.search); })();
+  </script>
+</head>'''
+if "</head>" in s and "Monolith CMS — /cms shortcut" not in s:
+    s = s.replace("</head>", head_snippet, 1)
+
+# 2) Auto-updating client script before </body>
+body_snippet = '    <script src="${BASE_URL}/public/cms-client.js" defer></script>\n  </body>'
 if "</body>" in s:
-    s = s.replace("</body>", snippet, 1)
-    p.write_text(s)
-    print("  index.html patched")
-else:
-    print("  (no </body> in index.html — add script manually)")
+    s = s.replace("</body>", body_snippet, 1)
+
+p.write_text(s)
+print("  index.html patched (cms-client + /cms shortcut)")
 PYHTML
   elif [ -f "$INDEX" ]; then
     echo "  index.html already has cms-client"
@@ -176,8 +186,8 @@ PYHTML
   fi
 
   banner "Monolith CMS installed successfully"
-  echo "  Admin UI:  https://<your-domain>/api/cms/admin"
-  echo "  Or local:  http://localhost:8001/api/cms/admin"
+  echo "  Admin UI:  https://<your-domain>/cms      (short URL — redirects to /api/cms/admin)"
+  echo "  Or local:  http://localhost:3000/cms"
   echo ""
   echo "  On first visit you'll create your admin password (setup wizard)."
   echo "  Then open any page on the site once — elements auto-appear in the CMS."

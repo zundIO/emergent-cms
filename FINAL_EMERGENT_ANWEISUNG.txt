@@ -6,18 +6,16 @@ Kopiere EINE Zeile und gib sie Emergent:
 
 ────────────────────────────────────────────────────────────────────────────────
 
-Installiere das Monolith CMS auf dieser Website:
+Installiere das Monolith CMS auf dieser Website — NICHT adaptieren,
+NICHT umschreiben, einfach den Installer ausführen.
+Der Installer erkennt React+FastAPI oder Next.js automatisch:
 
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/zundIO/emergent-cms/main/install.sh)"
 
 ────────────────────────────────────────────────────────────────────────────────
 
-WICHTIG: Sage Emergent ausdrücklich, NICHTS zu adaptieren oder umzuschreiben.
-Der Installer erkennt den Stack (React+FastAPI oder Next.js) automatisch
-und installiert die passende Version.
-
 Nach der Installation:
-  • Admin-UI:   https://<deine-domain>/api/cms/admin
+  • Admin-UI:   https://<deine-domain>/cms
   • Erster Aufruf: Admin-Passwort setzen (Setup-Wizard)
   • Danach: Elemente erscheinen automatisch im Editor,
     sobald du (oder Besucher) irgendeine Seite laden.
@@ -26,5 +24,5 @@ Keine data-cms-id Attribute. Keine Konfiguration. Kein manuelles Taggen.
 
 Future Updates: `git push` ins emergent-cms Repo
   • Browser-Client wird automatisch aktualisiert (~5 Min CDN-Cache)
-  • Server-Code: Admin sieht "Update CMS" Button im /api/cms/admin Panel
+  • Server-Code: Admin sieht "Update CMS" Button im /cms Panel
 ════════════════════════════════════════════════════════════════════════════════
