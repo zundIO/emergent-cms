@@ -39,6 +39,7 @@ curl -sf "${BASE_URL}/pages/api/cms/setup.js"      -o pages/api/cms/setup.js
 curl -sf "${BASE_URL}/pages/api/cms/content.js"    -o pages/api/cms/content.js
 curl -sf "${BASE_URL}/pages/api/cms/discover.js"   -o pages/api/cms/discover.js
 curl -sf "${BASE_URL}/pages/api/cms/register.js"   -o pages/api/cms/register.js
+curl -sf "${BASE_URL}/pages/api/cms/update.js"     -o pages/api/cms/update.js
 curl -sf "${BASE_URL}/pages/api/cms/public.js"     -o pages/api/cms/public.js
 curl -sf "${BASE_URL}/public/cms-client.js"        -o public/cms-client.js
 
@@ -58,6 +59,8 @@ export default function CMSEditor() {
   const [editingId, setEditingId] = useState(null);
   const [editValue, setEditValue] = useState({});
   const [filter, setFilter] = useState('all');
+  const [updateInfo, setUpdateInfo] = useState(null);
+  const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
     // Check setup status first, then auth
@@ -72,10 +75,29 @@ export default function CMSEditor() {
       .catch(() => setLoading(false));
   }, []);
 
-  useEffect(() => { if (authenticated) loadContent(); }, [authenticated]);
+  useEffect(() => { if (authenticated) { loadContent(); checkUpdate(); } }, [authenticated]);
 
   const loadContent = () => {
     fetch('/api/cms/content').then((r) => r.json()).then(setContent).catch(() => {});
+  };
+
+  const checkUpdate = () => {
+    fetch('/api/cms/update').then((r) => r.json()).then(setUpdateInfo).catch(() => {});
+  };
+
+  const runUpdate = async () => {
+    if (!confirm('Pull the latest CMS version from GitHub?\\nYour content (cms-data/) is untouched.')) return;
+    setUpdating(true);
+    try {
+      const res = await fetch('/api/cms/update', { method: 'POST' });
+      const data = await res.json();
+      alert('Updated ' + data.updated + '/' + data.total + ' files.\\nRestart the dev server or redeploy to activate.');
+      checkUpdate();
+    } catch (e) {
+      alert('Update failed: ' + e.message);
+    } finally {
+      setUpdating(false);
+    }
   };
 
   const handleSetup = async (e) => {
@@ -191,7 +213,12 @@ export default function CMSEditor() {
           <h1 style={{ margin: 0, fontSize: '1.1rem' }}>Monolith CMS</h1>
           <p style={{ margin: 0, fontSize: 12, color: '#888' }}>{elements.length} elements auto-discovered</p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {updateInfo?.update_available && (
+            <button onClick={runUpdate} disabled={updating} style={{ padding: '8px 14px', background: '#ffb84d', color: '#000', border: 0, borderRadius: 6, cursor: updating ? 'wait' : 'pointer', fontWeight: 700, fontSize: 13 }}>
+              {updating ? 'Updating…' : 'Update CMS'}
+            </button>
+          )}
           <button onClick={loadContent} style={{ padding: '8px 14px', background: '#222', color: '#fff', border: 0, borderRadius: 6, cursor: 'pointer', fontSize: 13 }}>Refresh</button>
           <button onClick={() => router.push('/')} style={{ padding: '8px 14px', background: '#4edea3', color: '#000', border: 0, borderRadius: 6, cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>View site →</button>
         </div>
@@ -277,9 +304,13 @@ export default function CMSEditor() {
 }
 EOFCMS
 
-echo -e "${BLUE}Step 4/6: Wiring up _document.js (auto-injecting CMS client)...${NC}"
+echo -e "${BLUE}Step 4/6: Wiring up _document.js (auto-injecting CMS client from CDN)...${NC}"
+# The client script is loaded directly from GitHub (raw.githubusercontent.com, ~5 min CDN cache)
+# so every installed site automatically picks up client-side improvements without reinstall.
+CMS_CLIENT_SRC="https://raw.githubusercontent.com/${REPO}/${BRANCH}/public/cms-client.js"
+
 if [ ! -f "pages/_document.js" ]; then
-  cat > pages/_document.js << 'EOFDOC'
+  cat > pages/_document.js << EOFDOC
 import { Html, Head, Main, NextScript } from 'next/document'
 
 export default function Document() {
@@ -289,25 +320,26 @@ export default function Document() {
       <body>
         <Main />
         <NextScript />
-        <script src="/cms-client.js" defer />
+        {/* Monolith CMS — auto-updating client (served from GitHub via CDN) */}
+        <script src="${CMS_CLIENT_SRC}" defer />
       </body>
     </Html>
   )
 }
 EOFDOC
-  echo "  Created pages/_document.js"
+  echo "  Created pages/_document.js (auto-updating client)"
 else
   if ! grep -q "cms-client.js" pages/_document.js; then
-    # Try to inject the script tag before </body>
     if grep -q "</body>" pages/_document.js; then
-      sed -i.bak 's|</body>|        <script src="/cms-client.js" defer />\n      </body>|' pages/_document.js
+      sed -i.bak "s|</body>|        <script src=\"${CMS_CLIENT_SRC}\" defer />\n      </body>|" pages/_document.js
       rm -f pages/_document.js.bak
-      echo "  Patched pages/_document.js (added cms-client.js)"
+      echo "  Patched pages/_document.js (added auto-updating client)"
     else
-      echo -e "  ${YELLOW}Could not auto-patch _document.js. Add <script src=\"/cms-client.js\" defer /> manually.${NC}"
+      echo -e "  ${YELLOW}Could not auto-patch _document.js. Add manually:${NC}"
+      echo "    <script src=\"${CMS_CLIENT_SRC}\" defer />"
     fi
   else
-    echo "  cms-client.js already in _document.js"
+    echo "  cms-client.js already referenced in _document.js"
   fi
 fi
 
