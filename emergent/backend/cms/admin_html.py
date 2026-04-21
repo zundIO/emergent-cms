@@ -192,6 +192,14 @@ ADMIN_HTML = r"""<!doctype html>
         }
       }, [state.updating ? 'Updating…' : 'Update CMS']));
     }
+    headerActions.push(h('button', { class: 'btn btn-ghost', onclick: function(){
+      if (!confirm('Re-scan frontend source code?\nThis adds data-cms-id attributes to editable elements.')) return;
+      api('/scan', { method: 'POST' }).then(function(d) {
+        if (d.success) toast('Scanned: ' + d.discovered + ' elements, ' + (d.new || 0) + ' new');
+        else toast('Scan failed: ' + (d.error || 'unknown'), true);
+        loadContent();
+      }).catch(function(){ toast('Scan failed', true); });
+    }}, ['Scan source']));
     headerActions.push(h('button', { class: 'btn btn-ghost', onclick: function(){ loadContent(); }}, ['Refresh']));
     headerActions.push(h('button', { class: 'btn btn-ghost', onclick: function(){
       api('/auth', { method: 'DELETE' }).then(function(){ state.authenticated = false; render(); });
@@ -221,7 +229,7 @@ ADMIN_HTML = r"""<!doctype html>
     if (elements.length === 0) {
       main.appendChild(h('div', { class: 'card empty-state' }, [
         h('h2', {}, ['No content yet']),
-        h('p', {}, ['Visit any page on your site — the CMS auto-discovers editable elements on load.']),
+        h('p', {}, ['Click "Scan source" in the header to discover all editable elements from your frontend/src code.']),
       ]));
     } else {
       filtered.forEach(function (el) { main.appendChild(renderElement(el)); });

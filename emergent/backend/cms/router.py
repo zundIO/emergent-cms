@@ -21,6 +21,7 @@ from pydantic import BaseModel, Field
 
 from . import auth, storage
 from .admin_html import ADMIN_HTML
+from .scanner import scan_and_patch
 
 router = APIRouter(prefix="/api/cms", tags=["cms"])
 
@@ -37,6 +38,7 @@ UPDATE_TARGETS: List[Dict[str, str]] = [
     {"remote": "emergent/backend/cms/storage.py",     "local": "backend/cms/storage.py"},
     {"remote": "emergent/backend/cms/auth.py",        "local": "backend/cms/auth.py"},
     {"remote": "emergent/backend/cms/admin_html.py",  "local": "backend/cms/admin_html.py"},
+    {"remote": "emergent/backend/cms/scanner.py",     "local": "backend/cms/scanner.py"},
     {"remote": "public/cms-client.js",                "local": "frontend/public/cms-client.js"},
 ]
 
@@ -110,7 +112,31 @@ async def setup_create(body: SetupBody, response: Response) -> Dict[str, Any]:
         max_age=60 * 60 * 24 * auth.SESSION_DAYS,
         path="/",
     )
-    return {"success": True}
+    # Auto-run the source-code scan so the admin immediately shows all
+    # editable elements without anyone visiting the site first.
+    try:
+        scan_result = scan_and_patch(inject=True)
+    except Exception as exc:  # noqa: BLE001
+        scan_result = {"success": False, "error": str(exc)}
+    return {"success": True, "scan": scan_result}
+
+
+# ---------------------------------------------------------------------------
+# Source-code scanner
+# ---------------------------------------------------------------------------
+
+@router.post("/scan")
+async def scan_source(request: Request) -> Dict[str, Any]:
+    """Admin-triggered rescan of frontend/src for editable elements."""
+    _require_auth(request)
+    return scan_and_patch(inject=True)
+
+
+@router.get("/scan")
+async def scan_preview(request: Request) -> Dict[str, Any]:
+    """Dry-run scan (no file modifications) — useful for previewing."""
+    _require_auth(request)
+    return scan_and_patch(inject=False)
 
 
 # ---------------------------------------------------------------------------

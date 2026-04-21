@@ -74,6 +74,7 @@ install_emergent() {
   curl -fsSL "${BASE_URL}/emergent/backend/cms/storage.py"    -o backend/cms/storage.py
   curl -fsSL "${BASE_URL}/emergent/backend/cms/auth.py"       -o backend/cms/auth.py
   curl -fsSL "${BASE_URL}/emergent/backend/cms/admin_html.py" -o backend/cms/admin_html.py
+  curl -fsSL "${BASE_URL}/emergent/backend/cms/scanner.py"    -o backend/cms/scanner.py
 
   log "Step 3/6 · Downloading browser client script…"
   curl -fsSL "${BASE_URL}/public/cms-client.js" -o frontend/public/cms-client.js
