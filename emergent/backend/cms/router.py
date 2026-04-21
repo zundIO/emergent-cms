@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 
 from . import auth, storage
 from .admin_html import ADMIN_HTML
-from .scanner import scan_and_patch
+from .scanner import scan_and_patch, undo_patch
 
 router = APIRouter(prefix="/api/cms", tags=["cms"])
 
@@ -112,13 +112,7 @@ async def setup_create(body: SetupBody, response: Response) -> Dict[str, Any]:
         max_age=60 * 60 * 24 * auth.SESSION_DAYS,
         path="/",
     )
-    # Auto-run the source-code scan so the admin immediately shows all
-    # editable elements without anyone visiting the site first.
-    try:
-        scan_result = scan_and_patch(inject=True)
-    except Exception as exc:  # noqa: BLE001
-        scan_result = {"success": False, "error": str(exc)}
-    return {"success": True, "scan": scan_result}
+    return {"success": True}
 
 
 # ---------------------------------------------------------------------------
@@ -134,9 +128,24 @@ async def scan_source(request: Request) -> Dict[str, Any]:
 
 @router.get("/scan")
 async def scan_preview(request: Request) -> Dict[str, Any]:
-    """Dry-run scan (no file modifications) — useful for previewing."""
+    """Dry-run scan (no file modifications)."""
     _require_auth(request)
     return scan_and_patch(inject=False)
+
+
+@router.post("/reset")
+async def reset_all(request: Request) -> Dict[str, Any]:
+    """Full reset: wipe all registered content AND remove injected
+    ``data-cms-id`` attributes from source files.
+
+    Admin credentials are preserved.
+    """
+    _require_auth(request)
+    # 1) Undo source patches
+    undo = undo_patch()
+    # 2) Wipe content
+    storage.save_content({"elements": {}})
+    return {"success": True, "undo": undo}
 
 
 # ---------------------------------------------------------------------------
