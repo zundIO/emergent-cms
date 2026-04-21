@@ -1,26 +1,22 @@
 [
   {
-    "content": "Backend: User-Model um 'project_access' Array erweitern und Seed-Daten anpassen",
+    "content": "FastAPI backend module (cms/router.py, storage.py, auth.py, setup wizard)",
     "status": "completed"
   },
   {
-    "content": "Backend: API-Endpoints anpassen (projects/pages Filter nach User-Zugriff, User-Management mit Projekt-Zuordnung)",
+    "content": "Admin UI HTML page (vanilla JS single-file, served by FastAPI)",
     "status": "completed"
   },
   {
-    "content": "Frontend: User-Verwaltung erweitern (Projekt-Zuordnung mit Checkboxen bei Create/Edit)",
+    "content": "Stack-detection installer (Emergent React+FastAPI vs Next.js)",
     "status": "completed"
   },
   {
-    "content": "Frontend: Projekt-Switcher in TopBar implementieren (Dropdown oben links)",
+    "content": "Auto-patch server.py (include_router) and index.html (cms-client.js)",
     "status": "completed"
   },
   {
-    "content": "Frontend: EditorPage für Projekt-Wechsel anpassen (State + Pages neu laden)",
-    "status": "completed"
-  },
-  {
-    "content": "Testen: Multi-Website-Management End-to-End testen",
+    "content": "Push to GitHub + verify all URLs + final instructions to user",
     "status": "in_progress"
   }
 ]
