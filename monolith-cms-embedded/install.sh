@@ -46,8 +46,20 @@ curl -sf "${BASE_URL}/pages/api/cms/content.js" -o pages/api/cms/content.js || {
 curl -sf "${BASE_URL}/pages/api/cms/discover.js" -o pages/api/cms/discover.js || { echo "Failed to download api/discover.js"; exit 1; }
 curl -sf "${BASE_URL}/pages/api/cms/public.js" -o pages/api/cms/public.js || { echo "Failed to download api/public.js"; exit 1; }
 
-# Download client script
+# Download client script (local copy for fallback)
 curl -sf "${BASE_URL}/public/cms-client.js" -o public/cms-client.js || { echo "Failed to download cms-client.js"; exit 1; }
+
+# Also create CDN version that auto-updates
+echo "Creating auto-updating client loader..."
+cat > public/cms-client-cdn.js << 'EOFCDN'
+// Auto-updating CMS client - always loads latest from GitHub
+(function() {
+  var script = document.createElement('script');
+  script.src = 'https://cdn.jsdelivr.net/gh/zundIO/cms@main/public/cms-client.js';
+  script.async = false;
+  document.head.appendChild(script);
+})();
+EOFCDN
 
 echo -e "${BLUE}📝 Step 3/6: Creating CMS Editor page...${NC}"
 
@@ -199,17 +211,18 @@ export default function Document() {
       <body>
         <Main />
         <NextScript />
-        <script src="/cms-client.js" />
+        {/* CMS Client - Auto-updating from CDN */}
+        <script src="https://cdn.jsdelivr.net/gh/zundIO/cms@main/public/cms-client.js" />
       </body>
     </Html>
   )
 }
 EOFDOC
-  echo "  ✓ Created pages/_document.js"
+  echo "  ✓ Created pages/_document.js with auto-updating CMS client"
 else
   # Check if cms-client.js is already included
   if ! grep -q "cms-client.js" pages/_document.js; then
-    echo "  ⚠️  Please add <script src=\"/cms-client.js\" /> to your pages/_document.js manually"
+    echo "  ⚠️  Please add <script src=\"https://cdn.jsdelivr.net/gh/zundIO/cms@main/public/cms-client.js\" /> to your pages/_document.js"
   else
     echo "  ✓ cms-client.js already included in _document.js"
   fi
