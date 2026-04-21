@@ -1,22 +1,26 @@
 [
   {
-    "content": "Source-Scanner implementieren: liest frontend/src, findet h1/h2/p/a/button/img in JSX",
-    "status": "completed"
+    "content": "Scanner verbessern: skip components/ui/, skip icon-names, bessere Filter",
+    "status": "in_progress"
   },
   {
-    "content": "Auto-Inject data-cms-id in Source-Dateien (damit cms-client.js Overrides anwenden kann)",
-    "status": "completed"
+    "content": "Undo-Scan Funktion: data-cms-id aus Source entfernen",
+    "status": "pending"
   },
   {
-    "content": "\"Scan source\" Button im Admin-Panel",
-    "status": "completed"
+    "content": "Reset-Endpoint: content.json leeren + Source patches rückgängig",
+    "status": "pending"
   },
   {
-    "content": "Auto-Scan nach Setup-Wizard (damit direkt alle Elemente da sind)",
-    "status": "completed"
+    "content": "Admin UI: Reset-Button + besseres Empty-State",
+    "status": "pending"
   },
   {
-    "content": "Push und testen",
-    "status": "completed"
+    "content": "Auto-Scan beim Setup rausnehmen (User entscheidet bewusst)",
+    "status": "pending"
+  },
+  {
+    "content": "Push + User anweisen Reset + Re-Scan",
+    "status": "pending"
   }
 ]
