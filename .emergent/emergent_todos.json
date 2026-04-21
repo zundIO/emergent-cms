@@ -1,22 +1,22 @@
 [
   {
-    "content": "FastAPI backend module (cms/router.py, storage.py, auth.py, setup wizard)",
+    "content": "Source-Scanner implementieren: liest frontend/src, findet h1/h2/p/a/button/img in JSX",
     "status": "completed"
   },
   {
-    "content": "Admin UI HTML page (vanilla JS single-file, served by FastAPI)",
+    "content": "Auto-Inject data-cms-id in Source-Dateien (damit cms-client.js Overrides anwenden kann)",
     "status": "completed"
   },
   {
-    "content": "Stack-detection installer (Emergent React+FastAPI vs Next.js)",
+    "content": "\"Scan source\" Button im Admin-Panel",
     "status": "completed"
   },
   {
-    "content": "Auto-patch server.py (include_router) and index.html (cms-client.js)",
+    "content": "Auto-Scan nach Setup-Wizard (damit direkt alle Elemente da sind)",
     "status": "completed"
   },
   {
-    "content": "Push to GitHub + verify all URLs + final instructions to user",
+    "content": "Push und testen",
     "status": "completed"
   }
 ]
