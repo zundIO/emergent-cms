@@ -9,7 +9,12 @@ set -e
 
 REPO="zundIO/emergent-cms"
 BRANCH="main"
+# raw.githubusercontent.com for server-side curl downloads (MIME doesn't matter here).
 BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
+# jsDelivr for browser script loading — serves GitHub files with correct
+# application/javascript MIME type (raw.githubusercontent uses text/plain + nosniff,
+# which causes browsers to refuse to execute the script).
+CDN_URL="https://cdn.jsdelivr.net/gh/${REPO}@${BRANCH}"
 
 GREEN='\033[0;32m'; BLUE='\033[0;34m'; YELLOW='\033[0;33m'; RED='\033[0;31m'; NC='\033[0m'
 
@@ -167,7 +172,16 @@ head_snippet = '''  <script>
 if "Monolith CMS — /cms shortcut" not in s and "</head>" in s:
     s = s.replace("</head>", head_snippet, 1); changed = True
 
-body_snippet = '    <script src="${BASE_URL}/public/cms-client.js" defer></script>\n  </body>'
+# Migrate old raw.githubusercontent URL to jsDelivr CDN (correct MIME type)
+import re as _re
+new_src = "${CDN_URL}/public/cms-client.js"
+old_pattern = _re.compile(r'<script[^>]+src="[^"]*(?:raw\\.githubusercontent\\.com|cdn\\.jsdelivr\\.net)[^"]*cms-client\\.js"[^>]*></script>')
+if old_pattern.search(s):
+    s2 = old_pattern.sub('<script src="' + new_src + '" defer></script>', s)
+    if s2 != s:
+        s = s2; changed = True
+
+body_snippet = '    <script src="' + new_src + '" defer></script>\n  </body>'
 if "cms-client.js" not in s and "</body>" in s:
     s = s.replace("</body>", body_snippet, 1); changed = True
 
@@ -276,14 +290,14 @@ export default function Document() {
       <body>
         <Main />
         <NextScript />
-        <script src="${BASE_URL}/public/cms-client.js" defer />
+        <script src="${CDN_URL}/public/cms-client.js" defer />
       </body>
     </Html>
   )
 }
 EOFDOC
   elif ! grep -q "cms-client.js" pages/_document.js; then
-    sed -i.bak "s|</body>|        <script src=\"${BASE_URL}/public/cms-client.js\" defer />\n      </body>|" pages/_document.js
+    sed -i.bak "s|</body>|        <script src=\"${CDN_URL}/public/cms-client.js\" defer />\n      </body>|" pages/_document.js
     rm -f pages/_document.js.bak
   fi
 
