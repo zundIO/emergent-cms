@@ -143,35 +143,84 @@ print("  server.py patched")
 PYFIX
   fi
 
-  log "Step 6/6 · Injecting browser client + /cms shortcut into frontend/public/index.html…"
+  log "Step 6/6 · Injecting browser client + /cms shortcut…"
   INDEX="frontend/public/index.html"
-  if [ -f "$INDEX" ] && ! grep -q "cms-client.js" "$INDEX"; then
+  APP_JS=""
+  for cand in frontend/src/App.js frontend/src/App.jsx frontend/src/App.tsx; do
+    [ -f "$cand" ] && APP_JS="$cand" && break
+  done
+
+  # (A) Patch index.html  -> cms-client.js + /cms redirect in <head>
+  #     We always run the patcher so re-runs don't skip when client already injected.
+  if [ -f "$INDEX" ]; then
     python3 - <<PYHTML
 import pathlib
 p = pathlib.Path("$INDEX")
 s = p.read_text()
+changed = False
 
-# 1) Short-URL redirect in <head>: /cms  ->  /api/cms/admin
 head_snippet = '''  <script>
     // Monolith CMS — /cms shortcut
     (function(){ var p=location.pathname; if(p==='/cms'||p==='/cms/') location.replace('/api/cms/admin'+location.search); })();
   </script>
 </head>'''
-if "</head>" in s and "Monolith CMS — /cms shortcut" not in s:
-    s = s.replace("</head>", head_snippet, 1)
+if "Monolith CMS — /cms shortcut" not in s and "</head>" in s:
+    s = s.replace("</head>", head_snippet, 1); changed = True
 
-# 2) Auto-updating client script before </body>
 body_snippet = '    <script src="${BASE_URL}/public/cms-client.js" defer></script>\n  </body>'
-if "</body>" in s:
-    s = s.replace("</body>", body_snippet, 1)
+if "cms-client.js" not in s and "</body>" in s:
+    s = s.replace("</body>", body_snippet, 1); changed = True
 
-p.write_text(s)
-print("  index.html patched (cms-client + /cms shortcut)")
+if changed:
+    p.write_text(s)
+    print("  index.html patched")
+else:
+    print("  index.html already up to date")
 PYHTML
-  elif [ -f "$INDEX" ]; then
-    echo "  index.html already has cms-client"
   else
     warn "  frontend/public/index.html not found — skipped"
+  fi
+
+  # (B) Patch App.js  -> add <Route path=\"/cms\" element={<CmsRedirect />} />
+  #     This is the RELIABLE shortcut: works even if Emergent overwrites index.html.
+  if [ -n "$APP_JS" ]; then
+    python3 - <<PYAPP
+import re, pathlib
+p = pathlib.Path("$APP_JS")
+s = p.read_text()
+if "CmsRedirect" in s:
+    print("  App.js already has CmsRedirect")
+else:
+    component = '''
+// Monolith CMS shortcut: /cms -> /api/cms/admin
+function CmsRedirect() {
+  if (typeof window !== "undefined") window.location.replace("/api/cms/admin");
+  return null;
+}
+'''
+    # Insert component after the last import line
+    lines = s.splitlines(keepends=True)
+    last_import = -1
+    for i, ln in enumerate(lines):
+        if ln.lstrip().startswith(("import ", "require(")):
+            last_import = i
+    if last_import >= 0:
+        lines.insert(last_import + 1, component)
+        s = "".join(lines)
+    else:
+        s = component + s
+
+    # Add <Route path="/cms" ...> before the first </Routes>
+    if "</Routes>" in s and "path=\"/cms\"" not in s and "path='/cms'" not in s:
+        s = s.replace("</Routes>",
+                      '        <Route path="/cms" element={<CmsRedirect />} />\n      </Routes>', 1)
+        p.write_text(s)
+        print("  App.js patched with /cms route")
+    else:
+        print("  App.js: no </Routes> found (or /cms route already present)")
+PYAPP
+  else
+    echo "  No App.js/.jsx/.tsx found under frontend/src — skipping React route patch"
   fi
 
   # Gitignore
