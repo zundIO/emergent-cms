@@ -13,7 +13,7 @@ echo ""
 # Configuration
 REPO="zundIO/cms"
 BRANCH="main"
-BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}"
+BASE_URL="https://raw.githubusercontent.com/${REPO}/${BRANCH}/monolith-cms-embedded"
 
 # Colors
 GREEN='\033[0;32m'

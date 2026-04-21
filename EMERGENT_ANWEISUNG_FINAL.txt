@@ -1,0 +1,43 @@
+════════════════════════════════════════════════════════════════════════════════
+MONOLITH CMS - INSTALLATION (ANGEPASST FÜR AKTUELLES REPO)
+════════════════════════════════════════════════════════════════════════════════
+
+EMERGENT-ANWEISUNG (Kopiere das komplette):
+
+────────────────────────────────────────────────────────────────────────────────
+
+Installiere Monolith CMS mit diesem Befehl:
+
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/zundIO/cms/main/monolith-cms-embedded/install.sh)"
+
+Nach erfolgreicher Installation:
+
+Füge zu ALLEN editierbaren Elementen das data-cms-id Attribut hinzu:
+
+<h1 data-cms-id="hero-headline">Willkommen</h1>
+<p data-cms-id="hero-description">Beschreibung</p>
+<img data-cms-id="hero-image" src="/hero.jpg" alt="Hero" />
+<a data-cms-id="cta-button" href="/kontakt">Kontakt</a>
+<button data-cms-id="submit-btn">Absenden</button>
+
+WICHTIG: Jede ID muss einzigartig sein!
+
+Nach Installation:
+1. Start: npm run dev
+2. Öffne: http://localhost:3000/cms
+3. Setup-Wizard erscheint
+4. Erstelle ersten Admin (Email, Name, Passwort)
+5. Klicke "Sync Website"
+6. Bearbeite Content!
+
+────────────────────────────────────────────────────────────────────────────────
+
+DAS WAR'S! 🚀
+
+════════════════════════════════════════════════════════════════════════════════
+
+
+HINWEIS: Der Pfad ist angepasst für die aktuelle Repo-Struktur.
+Für ein sauberes Repo später, siehe unten.
+
+════════════════════════════════════════════════════════════════════════════════
