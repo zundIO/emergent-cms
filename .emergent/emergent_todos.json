@@ -1,26 +1,26 @@
 [
   {
     "content": "Scanner verbessern: skip components/ui/, skip icon-names, bessere Filter",
-    "status": "in_progress"
+    "status": "completed"
   },
   {
     "content": "Undo-Scan Funktion: data-cms-id aus Source entfernen",
-    "status": "pending"
+    "status": "completed"
   },
   {
     "content": "Reset-Endpoint: content.json leeren + Source patches rückgängig",
-    "status": "pending"
+    "status": "completed"
   },
   {
-    "content": "Admin UI: Reset-Button + besseres Empty-State",
-    "status": "pending"
+    "content": "Admin UI komplett redesigned: Sidebar (Pages/Components/Other) + Topbar + Content-Area",
+    "status": "completed"
   },
   {
     "content": "Auto-Scan beim Setup rausnehmen (User entscheidet bewusst)",
-    "status": "pending"
+    "status": "completed"
   },
   {
-    "content": "Push + User anweisen Reset + Re-Scan",
-    "status": "pending"
+    "content": "Push + User anweisen Update-Button + Reload",
+    "status": "in_progress"
   }
 ]
