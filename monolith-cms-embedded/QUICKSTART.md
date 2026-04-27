@@ -53,7 +53,7 @@ Befolge die Anleitung in EMERGENT_PROMPT_GITHUB.txt"
 
 ### 1. CMS öffnen
 ```
-https://deine-website.preview.emergentagent.com/cms
+https://react-cms-editor.preview.emergentagent.com/cms
 ```
 
 ### 2. Login

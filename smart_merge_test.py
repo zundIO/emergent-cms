@@ -8,7 +8,7 @@ import json
 import time
 from datetime import datetime, timezone, timedelta
 
-BASE_URL = "https://page-studio-71.preview.emergentagent.com"
+BASE_URL = "https://react-cms-editor.preview.emergentagent.com"
 
 def test_smart_merge_fix():
     """Test the critical smart merge timestamp comparison fix"""

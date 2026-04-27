@@ -30,7 +30,7 @@ Wichtig:
 
 1. **Öffne das CMS:**
    ```
-   https://deine-website.preview.emergentagent.com/cms
+   https://react-cms-editor.preview.emergentagent.com/cms
    ```
 
 2. **Login:**

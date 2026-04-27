@@ -9,7 +9,7 @@ import json
 from datetime import datetime
 
 class MonolithCMSAPITester:
-    def __init__(self, base_url="https://page-studio-71.preview.emergentagent.com"):
+    def __init__(self, base_url="https://react-cms-editor.preview.emergentagent.com"):
         self.base_url = base_url
         self.admin_token = None
         self.editor_token = None
