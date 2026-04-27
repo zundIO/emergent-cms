@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
 import { pagesAPI, projectsAPI } from '../lib/api';
 import useUndoRedo from '../hooks/useUndoRedo';
@@ -84,12 +85,19 @@ export default function EditorPage() {
   // Keyboard shortcuts for undo/redo
   useEffect(() => {
     const handleKeyDown = (e) => {
-      // Skip if user is typing in an input or textarea
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') {
-        return;
-      }
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const modKey = isMac ? e.metaKey : e.ctrlKey;
+      const isInInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT';
+
+      // Save with Ctrl+S - works everywhere including inputs (standard save UX)
+      if (modKey && e.key === 's') {
+        e.preventDefault();
+        handleSave();
+        return;
+      }
+
+      // Undo/Redo - skip if user is typing in an input or textarea (they may want native undo)
+      if (isInInput) return;
 
       if (modKey && e.key === 'z' && !e.shiftKey) {
         e.preventDefault();
@@ -98,11 +106,6 @@ export default function EditorPage() {
       if (modKey && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
         e.preventDefault();
         handleRedo();
-      }
-      // Save with Ctrl+S
-      if (modKey && e.key === 's') {
-        e.preventDefault();
-        handleSave();
       }
     };
 
@@ -209,8 +212,10 @@ export default function EditorPage() {
       const res = await pagesAPI.get(currentPage._id);
       setCurrentPage(res.data);
       loadPages();
+      toast.success('Saved', { description: `${updates.length} elements updated` });
     } catch (err) {
       console.error('Save failed:', err);
+      toast.error('Save failed', { description: err.response?.data?.detail || err.message });
     } finally {
       setSaving(false);
     }
@@ -230,8 +235,10 @@ export default function EditorPage() {
       setCurrentPage(res.data);
       setIsDirty(false);
       loadPages();
+      toast.success('Published', { description: `${currentPage.name} is now live` });
     } catch (err) {
       console.error('Publish failed:', err);
+      toast.error('Publish failed', { description: err.response?.data?.detail || err.message });
     } finally {
       setPublishing(false);
     }
@@ -268,6 +275,17 @@ export default function EditorPage() {
     }
   };
 
+  // Wrap tab change so HISTORY/SEO close any open overlay panel and return focus to Canvas
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    if (showPagesList || showUserManagement || showIntegrationDocs) {
+      setShowPagesList(false);
+      setShowUserManagement(false);
+      setShowIntegrationDocs(false);
+      setActiveSidebar('pages');
+    }
+  };
+
   // Determine what to show in the main area
   const showHistory = activeTab === 'history' && currentPage && !showPagesList && !showUserManagement && !showIntegrationDocs;
 
@@ -281,7 +299,7 @@ export default function EditorPage() {
         deviceMode={deviceMode}
         setDeviceMode={setDeviceMode}
         activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        setActiveTab={handleTabChange}
         onPublish={handlePublish}
         onSave={handleSave}
         publishing={publishing}

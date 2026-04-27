@@ -1,5 +1,6 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import LoginPage from './pages/LoginPage';
 import EditorPage from './pages/EditorPage';
@@ -66,6 +67,18 @@ function App() {
     <Router>
       <AuthProvider>
         <AppRoutes />
+        <Toaster
+          position="bottom-right"
+          theme="dark"
+          toastOptions={{
+            style: {
+              background: '#1a1b1b',
+              border: '1px solid rgba(255,255,255,0.06)',
+              color: '#e3e2e2',
+              fontFamily: "'Space Grotesk', sans-serif",
+            },
+          }}
+        />
       </AuthProvider>
     </Router>
   );
