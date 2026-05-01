@@ -1,81 +1,111 @@
 # The Monolith CMS — Product Requirements
 
 ## Original Problem Statement
-User wants a CMS that can be plugged into any future Emergent website. The CMS must keep its full React UI (Google Stitch design: TopBar, LeftSidebar, Canvas, PropertyPanel, HistoryPanel) and run **per website** (not centralized) to avoid performance bottlenecks. User language: **GERMAN**.
+User wants a CMS that can be **installed per Emergent website** (not centralized — performance reason). Full React UI (Google Stitch: TopBar, LeftSidebar, Canvas, PropertyPanel, HistoryPanel) must be preserved. Per-website install: single command clones the CMS from GitHub into the website's `/app`, CMS runs in-process with the host FastAPI, uses the website's MongoDB with prefixed collections (`cms_*`). User language: **GERMAN**.
 
-## Architecture
-- **Backend**: FastAPI + MongoDB (`/app/backend`)
-- **Frontend**: React with custom Google Stitch dark theme (`/app/frontend`)
-- **Auth**: JWT-based with bcrypt, admin/editor roles
-- **Storage**: MongoDB (test_database)
-- **Deployment Target**: per-website install (each site self-hosts the CMS)
+## Architecture (Per-Site Install)
 
-## Core Features
-1. **Editor**: Click-to-edit canvas, PropertyPanel for content updates, undo/redo, device modes, structure/SEO/history tabs
-2. **Pages**: Static pages with element tree (heading, paragraph, image, button, badge, card, quote, section)
-3. **Auth**: Admin + editor roles, project-level access control
-4. **Versions**: Page version history with restore
-5. **Public API**: `/api/public/{project}/content` delivers published content
-6. **Integration**: Schema import (`POST /api/projects/import`) + client.js script for any website
-7. **Smart Merge**: Timestamp-based merge so editor changes survive Emergent re-builds
+```
+Target website (/app)
+├── backend/
+│   ├── server.py          ← host FastAPI; install_cms(app, ...) appended
+│   └── .env               ← MONGO_URL, DB_NAME, CMS_ADMIN_EMAIL, CMS_ADMIN_PASSWORD, JWT_SECRET
+├── frontend/              ← host website's frontend (untouched)
+└── cms/                   ← the CMS package (copied by install.sh)
+    ├── __init__.py
+    ├── core.py            ← APIRouter with all CMS routes + install_cms()
+    └── static/            ← pre-built React admin UI (Google Stitch)
+```
 
-## Test Credentials
-- Admin: `admin@monolith.cms` / `admin123`
-- Admin: `roman@zund.io` / `admin123`
-- Editor: `editor@monolith.cms` / `editor123`
+### Mount points on the host FastAPI
+| What | Where |
+|---|---|
+| Admin UI (React static) | `host.com/cms/` |
+| CMS API | `host.com/api/cms/*` |
+| Public content API | `host.com/api/cms/public/{project}/content` |
+| Client.js drop-in | `host.com/api/cms/client.js` |
+
+### Database
+- Shared MongoDB with host website
+- Separate collections: `cms_users`, `cms_pages`, `cms_projects`, `cms_page_versions`
+
+## Test Credentials (seeded on install)
+- Admin: `admin@monolith.cms` / `admin123` (overridable via `CMS_ADMIN_EMAIL` / `CMS_ADMIN_PASSWORD` env)
 
 ## Implementation Status
 
-### ✅ Done (Feb 2026 fork)
-- Static page edit flow polished (100% tests passing, 25/25 critical scenarios)
-- Toast notifications added (sonner) for save/publish success + errors
-- Ctrl+S works inside PropertyPanel inputs (was previously blocked)
-- HISTORY/SEO tab now closes PagesList/UserManagement/IntegrationDocs panel automatically
-- Demo data reset; 9 stale test projects cleaned from MongoDB
-- End-to-end verified: login → click element → edit in PropertyPanel → live canvas update → Ctrl+S save → publish → public API delivers updated content
+### ✅ Done (Feb 2026)
+- Static page edit flow polished (Toast notifications, Ctrl+S in inputs, HISTORY/PagesList UX)
+- **Per-Site Installer complete**:
+  - Refactored `/app/backend/server.py` (1050 → 62 lines) into thin host wrapper
+  - Created `/app/cms/` package with `install_cms(app, ...)` function
+  - All routes moved to `APIRouter` under configurable prefix (default `/api/cms`)
+  - `CLIENT_JS` updated with dynamic prefix placeholder
+  - React admin UI built with `PUBLIC_URL=/cms` → `/app/cms/static/`
+  - `/app/install.sh` one-line installer (161 lines, idempotent, validates target, backs up server.py)
+  - `/app/README.md` with install + usage + architecture docs
+  - Legacy code cleaned up: removed `/app/monolith-cms-embedded/`, `/app/cms-data/`, old prompts, `backend_test.py`
+- End-to-end verified: Login, Edit, Save, Publish, Public Content, Schema Import — all via `/api/cms/*`
 
-### 🔴 P0 — Per-Site React-UI Installer
-- Compile React frontend (`/app/frontend/build`) and serve as static files from FastAPI
-- Single install script (e.g. `install.sh` from GitHub) that sets up the full CMS on any website's server
-- Replace MongoDB dependency option with embedded SQLite/JSON for zero-dependency installs (or document MongoDB requirement)
-- Clean up `/app/monolith-cms-embedded/` and rejected vanilla-JS GitHub repo (`zundIO/emergent-cms`)
+### 🔴 P0 — User Action Required
+- **Push `/app` contents to `github.com/zundIO/cms`** (or preferred repo). The `install.sh` expects the repo at this location. Use "Save to Github" in Emergent chat.
+- **Test installation** on a fresh Emergent website via: `bash -c "$(curl -fsSL https://raw.githubusercontent.com/zundIO/cms/main/install.sh)"`
 
 ### 🟡 P1 — Dynamic Collections
-- Editor for repeating content types (blog posts, products, team members, etc.)
+- Editor for repeating content types (blog posts, products, team members)
 - Schema definition for Collections separate from static Pages
 - Public API endpoint for collection items
 
 ### 🟡 P1 — Asset/Image Management
-- Image upload UI inside the editor
+- Image upload UI in editor
 - Media library/picker for image elements
-- Thumbnails + alt-text required workflow
+- Required alt-text workflow
 
-### 🟢 P2 — reCAPTCHA on deployment safety
-### 🟢 P2 — Toast on undo/redo notifications
-### 🟢 P2 — Debounce undo stack to word-level (currently per-keystroke)
-
-## Known Limitations
-- `Canvas.js` has hardcoded `sectionStyles` map for the Monolith demo sections — non-default sections fall back to generic padding. Acceptable for now; will need a Tailwind class renderer for arbitrary imported pages.
+### 🟢 P2 — Backlog
+- Debounce undo stack to word-level (currently per-keystroke)
+- reCAPTCHA on login
+- Tailwind-class renderer in Canvas for arbitrary imported pages
+- Live-Preview iframe inside the editor
+- i18n / multi-language pages
 
 ## Key Files
+- `/app/cms/__init__.py` — package entry (`install_cms`)
+- `/app/cms/core.py` — all CMS logic, routes, seed, client.js, `install_cms()`
+- `/app/cms/static/` — pre-built React admin UI (tracked in git)
+- `/app/backend/server.py` — host FastAPI (62 lines)
+- `/app/install.sh` — one-line installer
+- `/app/README.md` — install + usage docs
 - `/app/frontend/src/pages/EditorPage.js` — main editor orchestration
 - `/app/frontend/src/components/editor/Canvas.js` — element rendering + selection
-- `/app/frontend/src/components/editor/PropertyPanel.js` — right-side content editor
-- `/app/frontend/src/components/editor/IntegrationDocs.js` — Emergent prompt + schema import UI
-- `/app/backend/server.py` — all routes (auth, pages, projects, public, client.js)
+- `/app/frontend/src/components/editor/PropertyPanel.js` — content editor panel
+- `/app/frontend/src/components/editor/IntegrationDocs.js` — schema import UI (rocket-icon)
+- `/app/frontend/src/lib/api.js` — uses `/api/cms` prefix
 
-## Key API Endpoints
-- `POST /api/auth/login` — login
-- `GET /api/projects` — list projects
-- `POST /api/projects/import` — import cms-schema.json (admin)
-- `GET /api/pages?project_id=X` — list pages
-- `PUT /api/pages/{id}/content/bulk` — bulk save edits
-- `PUT /api/pages/{id}/status` — publish/unpublish
-- `GET /api/public/{project}/content` — public published content (no auth)
-- `GET /api/client.js` — JavaScript client library for websites
+## Key API Endpoints (all under `/api/cms/*`)
+- `POST /auth/login` — admin/editor login
+- `GET /projects` — list projects
+- `POST /projects/import` — import `cms-schema.json` (admin)
+- `GET /pages?project_id=X` — list pages
+- `PUT /pages/{id}/content/bulk` — bulk save edits
+- `PUT /pages/{id}/status` — publish/unpublish
+- `GET /public/{project}/content` — publicly accessible published content
+- `GET /client.js` — drop-in JavaScript client library
+
+## Verification Checklist
+- [x] `/api/cms/auth/login` returns token
+- [x] `/api/cms/pages` list works
+- [x] `/api/cms/pages/{id}/content/bulk` saves edits
+- [x] `/api/cms/pages/{id}/status` publishes
+- [x] `/api/cms/public/default/content` returns published content
+- [x] `/api/cms/projects/import` creates project from schema
+- [x] `/api/cms/client.js` serves JS with correct `/api/cms/public/` URL
+- [x] `/cms/` serves React admin UI (locally on port 8001)
+- [x] MongoDB uses `cms_*` collections only
+- [x] `/app/backend/server.py` is 62 lines (thin host wrapper)
+- [x] Legacy `/api/*` routes removed (no collisions with host app)
 
 ## Next Action Items (priority order)
-1. P0: Plan per-site installer architecture (decide: static React build served by FastAPI vs separate frontend deployment)
-2. P0: Build install.sh + clean GitHub repo
-3. P1: Dynamic Collections
-4. P1: Asset Management
+1. 🔴 **User**: Push `/app` to `github.com/zundIO/cms` via "Save to Github"
+2. 🔴 **User**: Test `install.sh` on a fresh Emergent website
+3. 🟡 Build Dynamic Collections feature
+4. 🟡 Build Asset/Image Management

@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+# ============================================================
+# The Monolith CMS - One-Line Installer
+#
+# Usage (from inside your Emergent website's /app directory):
+#   curl -fsSL https://raw.githubusercontent.com/zundIO/cms/main/install.sh | bash
+#
+# Or specify a version / branch:
+#   curl -fsSL https://raw.githubusercontent.com/zundIO/cms/main/install.sh | CMS_REF=v1.0.0 bash
+#
+# This script:
+#   1. Downloads the CMS package into /app/cms/
+#   2. Appends required env vars to /app/backend/.env
+#   3. Patches /app/backend/server.py to mount the CMS
+#   4. Prints the admin credentials
+# ============================================================
+set -euo pipefail
+
+# ---------- Configuration (override via env vars) ----------
+TARGET_DIR="${TARGET_DIR:-/app}"
+CMS_REPO="${CMS_REPO:-https://github.com/zundIO/cms.git}"
+CMS_REF="${CMS_REF:-main}"
+CMS_ADMIN_EMAIL="${CMS_ADMIN_EMAIL:-admin@$(hostname -s 2>/dev/null || echo cms).local}"
+CMS_ADMIN_PASSWORD="${CMS_ADMIN_PASSWORD:-}"
+CMS_API_PREFIX="${CMS_API_PREFIX:-/api/cms}"
+CMS_STATIC_PATH="${CMS_STATIC_PATH:-/cms}"
+
+# Colors
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BOLD='\033[1m'
+NC='\033[0m'
+
+log()  { echo -e "${GREEN}[CMS]${NC} $*"; }
+warn() { echo -e "${YELLOW}[CMS]${NC} $*"; }
+fail() { echo -e "${RED}[CMS]${NC} $*" >&2; exit 1; }
+
+# ---------- Pre-flight checks ----------
+log "The Monolith CMS installer starting…"
+
+[[ -d "$TARGET_DIR/backend" ]] || fail "No /app/backend directory found. Run this inside an Emergent website."
+[[ -f "$TARGET_DIR/backend/server.py" ]] || fail "/app/backend/server.py not found."
+[[ -f "$TARGET_DIR/backend/.env" ]] || fail "/app/backend/.env not found."
+
+if [[ -d "$TARGET_DIR/cms" ]]; then
+  warn "$TARGET_DIR/cms already exists. Use 'bash -c \"\$(curl -fsSL ...)\" bash --force' to overwrite."
+  if [[ "${1:-}" != "--force" ]]; then
+    fail "Aborting. Nothing changed."
+  fi
+  rm -rf "$TARGET_DIR/cms"
+fi
+
+# ---------- Generate admin password if not provided ----------
+if [[ -z "$CMS_ADMIN_PASSWORD" ]]; then
+  CMS_ADMIN_PASSWORD="$(openssl rand -base64 12 | tr -d '/+=' | head -c 16)"
+fi
+
+# ---------- Download CMS package ----------
+TMP=$(mktemp -d)
+trap "rm -rf $TMP" EXIT
+
+log "Downloading CMS package from $CMS_REPO (ref: $CMS_REF)…"
+git clone --depth 1 --branch "$CMS_REF" "$CMS_REPO" "$TMP/repo" >/dev/null 2>&1 \
+  || fail "git clone failed. Is the repo public?"
+
+[[ -d "$TMP/repo/cms" ]] || fail "Repo structure is unexpected: cms/ directory missing."
+
+log "Copying CMS package to $TARGET_DIR/cms…"
+cp -r "$TMP/repo/cms" "$TARGET_DIR/cms"
+
+# ---------- Python dependencies ----------
+log "Installing Python dependencies…"
+REQ_FILE="$TARGET_DIR/backend/requirements.txt"
+PYTHON_BIN=$(command -v python3 || command -v python)
+[[ -n "$PYTHON_BIN" ]] || fail "python3 not found."
+
+# These should already exist in an Emergent stack but install defensively
+$PYTHON_BIN -m pip install --quiet --no-warn-script-location \
+  pymongo bcrypt pyjwt python-dotenv fastapi pydantic 2>&1 | tail -5 || true
+
+# ---------- Patch /app/backend/.env ----------
+log "Writing CMS env vars to /app/backend/.env…"
+ENV_FILE="$TARGET_DIR/backend/.env"
+grep -q "^CMS_ADMIN_EMAIL=" "$ENV_FILE" || echo "CMS_ADMIN_EMAIL=\"$CMS_ADMIN_EMAIL\"" >> "$ENV_FILE"
+grep -q "^CMS_ADMIN_PASSWORD=" "$ENV_FILE" || echo "CMS_ADMIN_PASSWORD=\"$CMS_ADMIN_PASSWORD\"" >> "$ENV_FILE"
+grep -q "^JWT_SECRET=" "$ENV_FILE" || echo "JWT_SECRET=\"$(openssl rand -hex 32)\"" >> "$ENV_FILE"
+
+# ---------- Patch server.py (idempotent) ----------
+SERVER="$TARGET_DIR/backend/server.py"
+if grep -q "from cms import install_cms" "$SERVER"; then
+  log "server.py already patched — skipping."
+else
+  log "Patching $SERVER with CMS mount…"
+  # Backup
+  cp "$SERVER" "$SERVER.pre-cms.bak"
+
+  # Append the CMS installation at the end of server.py
+  cat >> "$SERVER" <<'PYEOF'
+
+
+# ============================================================
+# Monolith CMS — auto-added by installer
+# ============================================================
+import os as _cms_os
+import sys as _cms_sys
+_cms_sys.path.insert(0, _cms_os.path.dirname(_cms_os.path.dirname(_cms_os.path.abspath(__file__))))
+try:
+    from cms import install_cms as _cms_install
+    _cms_static_dir = _cms_os.path.join(
+        _cms_os.path.dirname(_cms_os.path.dirname(_cms_os.path.abspath(__file__))),
+        "cms", "static"
+    )
+    _cms_install(
+        app,
+        mongo_url=_cms_os.environ.get("MONGO_URL"),
+        db_name=_cms_os.environ.get("DB_NAME", "monolith_cms"),
+        collection_prefix="cms_",
+        api_prefix=_cms_os.environ.get("CMS_API_PREFIX", "/api/cms"),
+        static_path=_cms_os.environ.get("CMS_STATIC_PATH", "/cms"),
+        static_dir=_cms_static_dir if _cms_os.path.isdir(_cms_static_dir) else None,
+        jwt_secret=_cms_os.environ.get("JWT_SECRET", "change-me"),
+        admin_email=_cms_os.environ.get("CMS_ADMIN_EMAIL", "admin@monolith.cms"),
+        admin_password=_cms_os.environ.get("CMS_ADMIN_PASSWORD", "admin123"),
+        seed_demo_content=False,
+        add_cors=False,
+    )
+except Exception as _cms_e:
+    import traceback as _cms_tb
+    print("[CMS] Failed to mount:", _cms_e)
+    _cms_tb.print_exc()
+PYEOF
+fi
+
+# ---------- Restart backend ----------
+if command -v supervisorctl >/dev/null 2>&1; then
+  log "Restarting backend via supervisor…"
+  sudo supervisorctl restart backend >/dev/null 2>&1 || supervisorctl restart backend >/dev/null 2>&1 || warn "Could not restart backend — please restart manually."
+else
+  warn "supervisorctl not found — please restart your backend manually."
+fi
+
+# ---------- Final output ----------
+echo
+echo -e "${BOLD}${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${BOLD}${GREEN}║        The Monolith CMS installed successfully            ║${NC}"
+echo -e "${BOLD}${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
+echo
+echo -e "  Admin UI:    ${BOLD}<your-site>${CMS_STATIC_PATH}${NC}"
+echo -e "  API base:    ${BOLD}<your-site>${CMS_API_PREFIX}${NC}"
+echo
+echo -e "  ${BOLD}Admin login:${NC}"
+echo -e "    email:     ${BOLD}$CMS_ADMIN_EMAIL${NC}"
+echo -e "    password:  ${BOLD}$CMS_ADMIN_PASSWORD${NC}"
+echo
+echo -e "  Credentials stored in ${BOLD}/app/backend/.env${NC}"
+echo -e "  ${YELLOW}→ Write the password down or change it after first login.${NC}"
+echo
+echo -e "  Next: after logging in, click the rocket icon in the sidebar"
+echo -e "  to see the ${BOLD}Integration Guide${NC} for connecting this website to the CMS."
+echo
