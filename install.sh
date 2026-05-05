@@ -23,7 +23,7 @@ CMS_REF="${CMS_REF:-main}"
 CMS_ADMIN_EMAIL="${CMS_ADMIN_EMAIL:-admin@$(hostname -s 2>/dev/null || echo cms).local}"
 CMS_ADMIN_PASSWORD="${CMS_ADMIN_PASSWORD:-}"
 CMS_API_PREFIX="${CMS_API_PREFIX:-/api/cms}"
-CMS_STATIC_PATH="${CMS_STATIC_PATH:-/cms}"
+CMS_STATIC_PATH="${CMS_STATIC_PATH:-/api/cms-admin}"
 
 # Colors
 GREEN='\033[0;32m'
@@ -82,9 +82,20 @@ $PYTHON_BIN -m pip install --quiet --no-warn-script-location \
 # ---------- Patch /app/backend/.env ----------
 log "Writing CMS env vars to /app/backend/.env…"
 ENV_FILE="$TARGET_DIR/backend/.env"
-grep -q "^CMS_ADMIN_EMAIL=" "$ENV_FILE" || echo "CMS_ADMIN_EMAIL=\"$CMS_ADMIN_EMAIL\"" >> "$ENV_FILE"
-grep -q "^CMS_ADMIN_PASSWORD=" "$ENV_FILE" || echo "CMS_ADMIN_PASSWORD=\"$CMS_ADMIN_PASSWORD\"" >> "$ENV_FILE"
-grep -q "^JWT_SECRET=" "$ENV_FILE" || echo "JWT_SECRET=\"$(openssl rand -hex 32)\"" >> "$ENV_FILE"
+
+# Ensure the file ends with a newline before appending (otherwise the
+# new variable gets glued to the end of the previous line and breaks
+# python-dotenv parsing — issue reported by Emergent agent).
+if [[ -s "$ENV_FILE" ]] && [[ -n "$(tail -c 1 "$ENV_FILE")" ]]; then
+  printf '\n' >> "$ENV_FILE"
+fi
+
+# Append vars only if not already set (idempotent)
+grep -q "^CMS_ADMIN_EMAIL=" "$ENV_FILE"   || printf 'CMS_ADMIN_EMAIL="%s"\n' "$CMS_ADMIN_EMAIL"             >> "$ENV_FILE"
+grep -q "^CMS_ADMIN_PASSWORD=" "$ENV_FILE"|| printf 'CMS_ADMIN_PASSWORD="%s"\n' "$CMS_ADMIN_PASSWORD"       >> "$ENV_FILE"
+grep -q "^JWT_SECRET=" "$ENV_FILE"        || printf 'JWT_SECRET="%s"\n' "$(openssl rand -hex 32)"          >> "$ENV_FILE"
+grep -q "^CMS_API_PREFIX=" "$ENV_FILE"    || printf 'CMS_API_PREFIX="%s"\n' "$CMS_API_PREFIX"              >> "$ENV_FILE"
+grep -q "^CMS_STATIC_PATH=" "$ENV_FILE"   || printf 'CMS_STATIC_PATH="%s"\n' "$CMS_STATIC_PATH"            >> "$ENV_FILE"
 
 # ---------- Patch server.py (idempotent) ----------
 SERVER="$TARGET_DIR/backend/server.py"
@@ -117,7 +128,7 @@ try:
         db_name=_cms_os.environ.get("DB_NAME", "monolith_cms"),
         collection_prefix="cms_",
         api_prefix=_cms_os.environ.get("CMS_API_PREFIX", "/api/cms"),
-        static_path=_cms_os.environ.get("CMS_STATIC_PATH", "/cms"),
+        static_path=_cms_os.environ.get("CMS_STATIC_PATH", "/api/cms-admin"),
         static_dir=_cms_static_dir if _cms_os.path.isdir(_cms_static_dir) else None,
         jwt_secret=_cms_os.environ.get("JWT_SECRET", "change-me"),
         admin_email=_cms_os.environ.get("CMS_ADMIN_EMAIL", "admin@monolith.cms"),
@@ -146,7 +157,7 @@ echo -e "${BOLD}${GREEN}╔═════════════════�
 echo -e "${BOLD}${GREEN}║        The Monolith CMS installed successfully            ║${NC}"
 echo -e "${BOLD}${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
 echo
-echo -e "  Admin UI:    ${BOLD}<your-site>${CMS_STATIC_PATH}${NC}"
+echo -e "  Admin UI:    ${BOLD}<your-site>${CMS_STATIC_PATH}/${NC}"
 echo -e "  API base:    ${BOLD}<your-site>${CMS_API_PREFIX}${NC}"
 echo
 echo -e "  ${BOLD}Admin login:${NC}"

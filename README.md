@@ -27,7 +27,7 @@ What the installer does:
 
 | What | Where |
 |---|---|
-| Admin UI (React) | `https://your-site.com/cms/` |
+| Admin UI (React) | `https://your-site.com/api/cms-admin/` |
 | CMS API | `https://your-site.com/api/cms/*` |
 | Public content API (for the website itself) | `https://your-site.com/api/cms/public/{project}/content` |
 | Client JS (drop-in script) | `https://your-site.com/api/cms/client.js` |
@@ -62,7 +62,7 @@ Your website (/app)
     └── static/             ← pre-built React admin UI (Google Stitch)
 ```
 
-FastAPI mounts the CMS router at `/api/cms/*` and the React admin UI as static files at `/cms/*`. MongoDB collections are prefixed with `cms_` so they never collide with the host website's data.
+FastAPI mounts the CMS router at `/api/cms/*` and the React admin UI as static files at `/api/cms-admin/*`. The path prefix `/api/*` is critical on Emergent stacks because the Kubernetes ingress routes only `/api/*` requests to the backend; everything else goes to the host frontend (which would otherwise hijack the admin UI). MongoDB collections are prefixed with `cms_` so they never collide with the host website's data.
 
 ---
 
@@ -76,7 +76,7 @@ FastAPI mounts the CMS router at `/api/cms/*` and the React admin UI as static f
 | `CMS_ADMIN_PASSWORD` | (generated) | First admin password |
 | `JWT_SECRET` | (generated) | Signs JWT tokens |
 | `CMS_API_PREFIX` | `/api/cms` | Change only if you need a different prefix |
-| `CMS_STATIC_PATH` | `/cms` | Change to mount admin UI at a different path |
+| `CMS_STATIC_PATH` | `/api/cms-admin` | Change to mount admin UI at a different path |
 
 ---
 
@@ -96,7 +96,7 @@ install_cms(
     db_name="my_site",
     collection_prefix="cms_",
     api_prefix="/api/cms",
-    static_path="/cms",
+    static_path="/api/cms-admin",
     static_dir="/app/cms/static",
     jwt_secret="change-me-in-production",
     admin_email="admin@example.com",
@@ -148,7 +148,7 @@ cd backend && python -m uvicorn server:app --reload --port 8001
 cd frontend && yarn install && yarn start
 
 # Rebuild admin UI into cms/static/
-cd frontend && REACT_APP_BACKEND_URL="" PUBLIC_URL="/cms" yarn build
+cd frontend && REACT_APP_BACKEND_URL="" PUBLIC_URL="/api/cms-admin" yarn build
 rm -rf ../cms/static && cp -r build ../cms/static
 ```
 

@@ -52,7 +52,7 @@ install_cms(
     db_name=DB_NAME,
     collection_prefix="cms_",
     api_prefix="/api/cms",
-    static_path="/cms",
+    static_path="/api/cms-admin",
     static_dir=CMS_STATIC_DIR if os.path.isdir(CMS_STATIC_DIR) else None,
     jwt_secret=JWT_SECRET,
     admin_email=CMS_ADMIN_EMAIL,

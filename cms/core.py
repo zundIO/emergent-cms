@@ -378,7 +378,11 @@ def seed_database(seed_demo_content: bool = True):
     admin_email = _config["admin_email"]
     admin_password = _config["admin_password"]
 
-    if users_col().count_documents({}) == 0:
+    # Idempotent admin creation: if the configured admin doesn't exist yet,
+    # create it. This handles the case where a previous broken install seeded
+    # the wrong admin (e.g. due to a malformed .env) and the operator has
+    # since fixed the env vars and restarted.
+    if not users_col().find_one({"email": admin_email}):
         users_col().insert_one({
             "email": admin_email,
             "password_hash": hash_password(admin_password),
@@ -389,6 +393,8 @@ def seed_database(seed_demo_content: bool = True):
             "created_at": datetime.now(timezone.utc),
         })
         print(f"[CMS] Seeded admin user: {admin_email}")
+    else:
+        print(f"[CMS] Admin user {admin_email} already exists — skipping seed.")
 
     if seed_demo_content:
         if projects_col().count_documents({}) == 0:
@@ -1078,7 +1084,7 @@ def install_cms(
     db_name: str,
     collection_prefix: str = "cms_",
     api_prefix: str = "/api/cms",
-    static_path: str = "/cms",
+    static_path: str = "/api/cms-admin",
     static_dir: Optional[str] = None,
     jwt_secret: str = "monolith-cms-default-secret-change-me",
     admin_email: str = "admin@monolith.cms",

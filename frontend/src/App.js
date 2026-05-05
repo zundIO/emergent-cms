@@ -63,8 +63,12 @@ function AppRoutes() {
 }
 
 function App() {
+  // basename = PUBLIC_URL set at build time. For the default install
+  // this is "/api/cms-admin" so React Router routes resolve correctly
+  // when the SPA is mounted under that path on the host website.
+  const basename = process.env.PUBLIC_URL || '';
   return (
-    <Router>
+    <Router basename={basename}>
       <AuthProvider>
         <AppRoutes />
         <Toaster
