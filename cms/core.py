@@ -5,6 +5,7 @@ Exposes install_cms(app, ...) for mounting into any FastAPI application.
 import os
 import copy
 import json
+import re
 import subprocess
 import threading
 import urllib.request
@@ -1189,6 +1190,153 @@ async def upgrade_cms(current_user: dict = Depends(require_admin)):
         "from": v.get("commit", "unknown"),
         "ref": ref,
     }
+
+
+# ============================================================
+# AUTO-CONNECT — scan host frontend, inject data-cms-id, import schema
+# ============================================================
+
+
+class ScanRequest(BaseModel):
+    scan_path: Optional[str] = None  # default: /app/frontend/src/pages
+
+
+class ApplyConnectionRequest(BaseModel):
+    suggestion_ids: List[str]                  # which suggested_ids to apply
+    project_name: str = "Auto-detected Site"
+
+
+@router.post("/system/scan-website")
+async def scan_website(req: ScanRequest, current_user: dict = Depends(require_admin)):
+    """Admin — scan the host website's frontend source for editable elements."""
+    from . import scanner
+
+    scan_root = req.scan_path or os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "frontend", "src", "pages"
+    )
+    if not os.path.isdir(scan_root):
+        # Fall back to /app/frontend/src
+        scan_root = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "frontend", "src"
+        )
+    if not os.path.isdir(scan_root):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not find frontend source. Tried {scan_root}. Set scan_path explicitly."
+        )
+
+    suggestions = scanner.scan_directory(scan_root)
+    return {
+        "scan_root": scan_root,
+        "count": len(suggestions),
+        "suggestions": scanner.suggestions_to_dicts(suggestions),
+    }
+
+
+@router.post("/system/apply-connection")
+async def apply_connection(req: ApplyConnectionRequest, current_user: dict = Depends(require_admin)):
+    """Admin — inject data-cms-id into source files, build schema, import as project."""
+    from . import scanner
+
+    # Re-scan to get fresh offsets (file may have changed)
+    scan_root = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "frontend", "src", "pages"
+    )
+    if not os.path.isdir(scan_root):
+        scan_root = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "frontend", "src"
+        )
+
+    fresh_suggestions = scanner.scan_directory(scan_root)
+    selected = [s for s in fresh_suggestions if s.suggested_id in req.suggestion_ids or s.existing_id in req.suggestion_ids]
+
+    if not selected:
+        raise HTTPException(status_code=400, detail="No matching elements found.")
+
+    # 1. Inject data-cms-id into source files
+    apply_result = scanner.apply_suggestions(selected)
+
+    # 2. Re-scan once more so the schema has the freshly-injected ids
+    final_suggestions = scanner.scan_directory(scan_root)
+    schema = scanner.build_schema_from_suggestions(final_suggestions, project_name=req.project_name)
+
+    # 3. Import the schema (re-uses existing import logic)
+    project_id = re.sub(r"[^a-z0-9-]+", "-", req.project_name.lower()).strip("-") or "auto-site"
+
+    # Idempotent project create
+    if not projects_col().find_one({"project_id": project_id}):
+        projects_col().insert_one({
+            "project_id": project_id,
+            "name": req.project_name,
+            "slug": project_id,
+            "description": f"Auto-detected from {scan_root}",
+            "created_at": datetime.now(timezone.utc),
+            "source_updated_at": schema["source_updated_at"],
+        })
+    else:
+        projects_col().update_one(
+            {"project_id": project_id},
+            {"$set": {"source_updated_at": schema["source_updated_at"]}}
+        )
+
+    pages_added = 0
+    pages_updated = 0
+    for page in schema["pages"]:
+        existing = pages_col().find_one({"project_id": project_id, "slug": page["slug"]})
+        if existing:
+            # Smart merge: keep CMS edits made after source_updated_at
+            pages_col().update_one(
+                {"_id": existing["_id"]},
+                {"$set": {
+                    "elements": _merge_elements(existing.get("elements", []), page["elements"], existing.get("source_updated_at")),
+                    "source_updated_at": schema["source_updated_at"],
+                    "updated_at": datetime.now(timezone.utc),
+                }}
+            )
+            pages_updated += 1
+        else:
+            pages_col().insert_one({
+                "_id": str(ObjectId()),
+                "project_id": project_id,
+                "name": page["name"],
+                "slug": page["slug"],
+                "elements": page["elements"],
+                "status": "draft",
+                "source_updated_at": schema["source_updated_at"],
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
+            })
+            pages_added += 1
+
+    return {
+        "success": True,
+        "project_id": project_id,
+        "files_modified": apply_result["files_modified"],
+        "elements_added": apply_result["elements_added"],
+        "pages_added": pages_added,
+        "pages_updated": pages_updated,
+        "total_elements": sum(len(p["elements"]) for p in schema["pages"]),
+    }
+
+
+def _merge_elements(existing: list, fresh: list, last_source_updated: Optional[datetime]) -> list:
+    """Keep existing element content if it was edited after the source was last scanned."""
+    existing_by_id = {e["id"]: e for e in existing}
+    merged = []
+    for fresh_el in fresh:
+        eid = fresh_el["id"]
+        if eid in existing_by_id:
+            old = existing_by_id[eid]
+            old_updated = old.get("updated_at")
+            if old_updated and last_source_updated and old_updated > last_source_updated:
+                # CMS edit is newer -> keep it
+                fresh_el = {**fresh_el, "content": old.get("content", fresh_el["content"])}
+        merged.append(fresh_el)
+    return merged
 
 
 # ============================================================

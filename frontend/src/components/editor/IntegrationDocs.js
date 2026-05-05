@@ -1,7 +1,10 @@
-import React, { useState, useRef } from 'react';
-import { Copy, Check, Upload, FileJson, Box, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Copy, Check, Upload, FileJson, Box, Loader2, AlertCircle, CheckCircle2, Sparkles, Wand2, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { projectsAPI } from '../../lib/api';
+import { toast } from 'sonner';
+import api, { projectsAPI } from '../../lib/api';
+
+const API_BASE = process.env.REACT_APP_CMS_API_BASE || '/api/cms';
 
 const IntegrationDocs = ({ cmsUrl, onClose }) => {
   const [copiedBlock, setCopiedBlock] = useState(null);
@@ -10,6 +13,62 @@ const IntegrationDocs = ({ cmsUrl, onClose }) => {
   const [importResult, setImportResult] = useState(null);
   const [importError, setImportError] = useState('');
   const fileInputRef = useRef(null);
+
+  // Auto-Connect state
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState(null); // {scan_root, count, suggestions}
+  const [scanError, setScanError] = useState('');
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [projectName, setProjectName] = useState('Auto-detected Site');
+  const [applying, setApplying] = useState(false);
+  const [applyResult, setApplyResult] = useState(null);
+
+  const handleScan = async () => {
+    setScanning(true);
+    setScanError('');
+    setScanResult(null);
+    try {
+      const res = await api.post(`${API_BASE}/system/scan-website`, {});
+      setScanResult(res.data);
+      // Pre-select all by default
+      setSelectedIds(new Set(res.data.suggestions.map(s => s.has_existing_id ? s.existing_id : s.suggested_id)));
+    } catch (err) {
+      setScanError(err.response?.data?.detail || err.message);
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const toggleSelection = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handleApplyConnection = async () => {
+    if (selectedIds.size === 0) {
+      toast.error('Select at least one element to connect.');
+      return;
+    }
+    setApplying(true);
+    setApplyResult(null);
+    try {
+      const res = await api.post(`${API_BASE}/system/apply-connection`, {
+        suggestion_ids: Array.from(selectedIds),
+        project_name: projectName,
+      });
+      setApplyResult(res.data);
+      toast.success('Website connected!', {
+        description: `${res.data.elements_added} elements tagged across ${res.data.files_modified} files. Project "${res.data.project_id}" ready.`,
+      });
+    } catch (err) {
+      toast.error('Connection failed', { description: err.response?.data?.detail || err.message });
+    } finally {
+      setApplying(false);
+    }
+  };
 
   const copyToClipboard = (text, blockId) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -231,9 +290,175 @@ REGELN FÜR DIE WEBSITE-ENTWICKLUNG:
       </div>
 
       {/* ============================================================ */}
-      {/* SECTION: Emergent Anweisung */}
+      {/* SECTION: Auto-Connect (NEW) */}
       {/* ============================================================ */}
-      <Section number="1" title="Emergent Anweisung" subtitle="Kopiere diesen kompletten Text und gib ihn Emergent bei jeder neuen Website">
+      <Section
+        number="1"
+        title="Connect This Website"
+        subtitle="Automatisch alle editierbaren Elemente erkennen und verbinden – kein manuelles Prompt-Kopieren mehr"
+      >
+        {!scanResult && !applyResult && (
+          <div>
+            <p className="text-sm mb-4" style={{ color: 'var(--muted)' }}>
+              Der Scanner durchsucht <span className="font-mono text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: 'rgba(255,255,255,0.05)' }}>frontend/src/pages/</span> mit AST-basierter Analyse, findet statische Texte, Buttons und Bilder, und schlägt sie als editierbare Elemente vor. Du wählst aus, was übernommen wird.
+            </p>
+            <button
+              data-testid="auto-connect-scan-btn"
+              onClick={handleScan}
+              disabled={scanning}
+              className="gradient-btn px-5 py-2.5 rounded-[4px] font-headline font-bold text-xs tracking-wider uppercase flex items-center gap-2"
+            >
+              {scanning ? <><Loader2 size={14} className="animate-spin" /> Scanning…</> : <><Wand2 size={14} /> Scan Website</>}
+            </button>
+            {scanError && (
+              <div className="mt-3 flex items-start gap-2 p-3 rounded-[4px]" style={{ backgroundColor: 'rgba(239,68,68,0.08)', color: '#fca5a5' }}>
+                <AlertCircle size={14} style={{ flexShrink: 0, marginTop: 2 }} />
+                <span className="text-xs">{scanError}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {scanResult && !applyResult && (
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <p className="text-xs uppercase tracking-wider mb-1" style={{ color: 'var(--muted)' }}>
+                  Found {scanResult.count} editable elements
+                </p>
+                <p className="text-xs font-mono" style={{ color: 'var(--muted)' }}>
+                  {scanResult.scan_root}
+                </p>
+              </div>
+              <button
+                onClick={handleScan}
+                className="text-xs flex items-center gap-1.5 px-3 py-1.5 rounded-[4px]"
+                style={{ backgroundColor: 'rgba(255,255,255,0.05)', color: 'var(--muted)' }}
+                data-testid="auto-connect-rescan-btn"
+              >
+                <RefreshCw size={12} /> Re-scan
+              </button>
+            </div>
+
+            <div className="mb-3 flex items-center gap-2 text-xs">
+              <button
+                onClick={() => setSelectedIds(new Set(scanResult.suggestions.map(s => s.has_existing_id ? s.existing_id : s.suggested_id)))}
+                className="px-2 py-1 rounded" style={{ backgroundColor: 'rgba(255,255,255,0.05)', color: 'var(--muted)' }}
+              >Select all</button>
+              <button
+                onClick={() => setSelectedIds(new Set())}
+                className="px-2 py-1 rounded" style={{ backgroundColor: 'rgba(255,255,255,0.05)', color: 'var(--muted)' }}
+              >Deselect all</button>
+              <span style={{ color: 'var(--muted)' }}>
+                {selectedIds.size} of {scanResult.count} selected
+              </span>
+            </div>
+
+            <div
+              className="rounded-[4px] max-h-96 overflow-y-auto mb-4"
+              style={{ backgroundColor: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}
+            >
+              <table className="w-full text-xs">
+                <thead style={{ backgroundColor: 'rgba(255,255,255,0.04)', position: 'sticky', top: 0 }}>
+                  <tr>
+                    <th className="text-left p-2 w-8"></th>
+                    <th className="text-left p-2">Tag</th>
+                    <th className="text-left p-2">Page</th>
+                    <th className="text-left p-2">Content</th>
+                    <th className="text-left p-2">ID</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scanResult.suggestions.map((s, idx) => {
+                    const id = s.has_existing_id ? s.existing_id : s.suggested_id;
+                    const checked = selectedIds.has(id);
+                    return (
+                      <tr
+                        key={idx}
+                        onClick={() => toggleSelection(id)}
+                        className="cursor-pointer"
+                        style={{ borderTop: '1px solid rgba(255,255,255,0.04)', opacity: checked ? 1 : 0.5 }}
+                        data-testid={`auto-connect-row-${idx}`}
+                      >
+                        <td className="p-2">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleSelection(id)}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        </td>
+                        <td className="p-2 font-mono" style={{ color: 'var(--primary-2)' }}>{s.tag}</td>
+                        <td className="p-2 font-mono text-xs opacity-60">
+                          {s.rel_file}:{s.line}
+                        </td>
+                        <td className="p-2" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {s.text}
+                        </td>
+                        <td className="p-2 font-mono text-xs opacity-50">
+                          {s.has_existing_id ? <span style={{ color: '#10b981' }}>✓ {s.existing_id}</span> : s.suggested_id}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <input
+                type="text"
+                value={projectName}
+                onChange={(e) => setProjectName(e.target.value)}
+                placeholder="Project name"
+                className="flex-1 px-3 py-2 text-sm rounded-[4px]"
+                style={{ backgroundColor: 'rgba(255,255,255,0.05)', color: 'var(--text)', border: '1px solid rgba(255,255,255,0.08)' }}
+                data-testid="auto-connect-project-name"
+              />
+              <button
+                onClick={handleApplyConnection}
+                disabled={applying || selectedIds.size === 0}
+                className="gradient-btn px-5 py-2.5 rounded-[4px] font-headline font-bold text-xs tracking-wider uppercase flex items-center gap-2"
+                data-testid="auto-connect-apply-btn"
+              >
+                {applying ? <><Loader2 size={14} className="animate-spin" /> Applying…</> : <><Sparkles size={14} /> Apply & Connect</>}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {applyResult && (
+          <div className="space-y-3">
+            <div className="flex items-start gap-3 p-4 rounded-[4px]" style={{ backgroundColor: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.2)' }}>
+              <CheckCircle2 size={18} style={{ color: '#10b981', flexShrink: 0, marginTop: 2 }} />
+              <div className="flex-1 text-sm">
+                <p className="font-bold mb-1" style={{ color: '#10b981' }}>Website connected successfully</p>
+                <ul className="text-xs space-y-1 opacity-80">
+                  <li>• Project: <span className="font-mono">{applyResult.project_id}</span></li>
+                  <li>• {applyResult.elements_added} new elements tagged across {applyResult.files_modified} files</li>
+                  <li>• {applyResult.pages_added} pages added, {applyResult.pages_updated} updated</li>
+                  <li>• {applyResult.total_elements} total editable elements available in CMS</li>
+                </ul>
+                <p className="text-xs mt-2 opacity-70">
+                  Switch to project <span className="font-mono">{applyResult.project_id}</span> in the top bar to start editing.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => { setScanResult(null); setApplyResult(null); setSelectedIds(new Set()); }}
+              className="text-xs px-3 py-1.5 rounded-[4px]"
+              style={{ backgroundColor: 'rgba(255,255,255,0.05)', color: 'var(--muted)' }}
+            >
+              Scan again
+            </button>
+          </div>
+        )}
+      </Section>
+
+      {/* ============================================================ */}
+      {/* SECTION: Emergent Anweisung (manual fallback) */}
+      {/* ============================================================ */}
+      <Section number="2" title="Emergent Anweisung (manuell)" subtitle="Falls Auto-Connect nicht alles erfasst hat — kopieren und Emergent geben">
         <p className="text-sm mb-4" style={{ color: 'var(--muted)' }}>
           Diese Anweisung enthält alles was Emergent braucht – Element-Markierung, Schema-Format, Client-Script, und Update-Regeln. Einfach kopieren und als Kontext mitgeben.
         </p>
@@ -249,7 +474,7 @@ REGELN FÜR DIE WEBSITE-ENTWICKLUNG:
       {/* ============================================================ */}
       {/* SECTION: Schema Import */}
       {/* ============================================================ */}
-      <Section number="2" title="Website importieren" subtitle="Lade die cms-schema.json hier hoch oder füge das JSON ein">
+      <Section number="3" title="Website importieren (manuell)" subtitle="Lade die cms-schema.json hier hoch oder füge das JSON ein">
         <div
           className="rounded-[4px] p-6"
           style={{ backgroundColor: 'var(--elevated)' }}
@@ -373,7 +598,7 @@ REGELN FÜR DIE WEBSITE-ENTWICKLUNG:
       {/* ============================================================ */}
       {/* SECTION: Schema Beispiel */}
       {/* ============================================================ */}
-      <Section number="3" title="Schema Beispiel" subtitle="Vorlage für die cms-schema.json">
+      <Section number="4" title="Schema Beispiel" subtitle="Vorlage für die cms-schema.json">
         <CodeBlock
           code={schemaExample}
           language="json"
@@ -386,7 +611,7 @@ REGELN FÜR DIE WEBSITE-ENTWICKLUNG:
       {/* ============================================================ */}
       {/* SECTION: Element-Typen Referenz */}
       {/* ============================================================ */}
-      <Section number="4" title="Element-Typen" subtitle="Unterstützte Typen und ihre Content-Felder">
+      <Section number="5" title="Element-Typen" subtitle="Unterstützte Typen und ihre Content-Felder">
         <div className="space-y-2">
           <TypeRow type="heading" fields="text, highlight.word, highlight.color" tag="h1-h6" />
           <TypeRow type="paragraph" fields="text" tag="p" />
@@ -402,7 +627,7 @@ REGELN FÜR DIE WEBSITE-ENTWICKLUNG:
       {/* ============================================================ */}
       {/* SECTION: Timestamp-Merge Erklärung */}
       {/* ============================================================ */}
-      <Section number="5" title="Smart Merge" subtitle="Wie das CMS entscheidet welcher Content gilt">
+      <Section number="6" title="Smart Merge" subtitle="Wie das CMS entscheidet welcher Content gilt">
         <div className="space-y-3">
           <MergeRow
             scenario="Editor ändert Text im CMS, dann wird Website mit Emergent neu gebaut"
@@ -430,7 +655,7 @@ REGELN FÜR DIE WEBSITE-ENTWICKLUNG:
       {/* ============================================================ */}
       {/* SECTION: API Referenz */}
       {/* ============================================================ */}
-      <Section number="6" title="API Referenz" subtitle="Endpoints für Integration">
+      <Section number="7" title="API Referenz" subtitle="Endpoints für Integration">
         <div className="space-y-2">
           <ApiRow method="POST" path="/api/projects/import" desc="Schema importieren (Admin)" />
           <ApiRow method="GET" path="/api/public/{project}/content" desc="Publizierte Inhalte (öffentlich)" />
