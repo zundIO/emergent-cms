@@ -43,12 +43,32 @@ log "The Monolith CMS installer starting…"
 [[ -f "$TARGET_DIR/backend/server.py" ]] || fail "/app/backend/server.py not found."
 [[ -f "$TARGET_DIR/backend/.env" ]] || fail "/app/backend/.env not found."
 
+# ---------- Mode detection (--upgrade vs --force vs fresh) ----------
+MODE="fresh"
+for arg in "$@"; do
+  case "$arg" in
+    --upgrade) MODE="upgrade" ;;
+    --force)   MODE="force"   ;;
+  esac
+done
+
 if [[ -d "$TARGET_DIR/cms" ]]; then
-  warn "$TARGET_DIR/cms already exists. Use 'bash -c \"\$(curl -fsSL ...)\" bash --force' to overwrite."
-  if [[ "${1:-}" != "--force" ]]; then
-    fail "Aborting. Nothing changed."
-  fi
-  rm -rf "$TARGET_DIR/cms"
+  case "$MODE" in
+    upgrade)
+      log "Upgrade mode — keeping .env, MongoDB data and admin user. Replacing CMS code…"
+      rm -rf "$TARGET_DIR/cms"
+      ;;
+    force)
+      warn "Force mode — overwriting $TARGET_DIR/cms (data in MongoDB is preserved)."
+      rm -rf "$TARGET_DIR/cms"
+      ;;
+    *)
+      warn "$TARGET_DIR/cms already exists."
+      warn "  Run with --upgrade to update the CMS to the latest version (recommended)"
+      warn "  Run with --force   to fully overwrite the CMS code"
+      fail "Aborting. Nothing changed."
+      ;;
+  esac
 fi
 
 # ---------- Generate admin password if not provided ----------
@@ -68,6 +88,20 @@ git clone --depth 1 --branch "$CMS_REF" "$CMS_REPO" "$TMP/repo" >/dev/null 2>&1 
 
 log "Copying CMS package to $TARGET_DIR/cms…"
 cp -r "$TMP/repo/cms" "$TARGET_DIR/cms"
+
+# Write VERSION file with the installed commit SHA so the CMS can later
+# detect when a newer version is available on GitHub.
+INSTALLED_SHA=$(cd "$TMP/repo" && git rev-parse HEAD 2>/dev/null || echo "unknown")
+INSTALLED_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+cat > "$TARGET_DIR/cms/VERSION" <<EOF
+{
+  "commit": "$INSTALLED_SHA",
+  "ref": "$CMS_REF",
+  "repo": "$CMS_REPO",
+  "installed_at": "$INSTALLED_DATE"
+}
+EOF
+log "Installed version: ${INSTALLED_SHA:0:8} (ref: $CMS_REF)"
 
 # ---------- Python dependencies ----------
 log "Installing Python dependencies…"

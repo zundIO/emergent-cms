@@ -109,12 +109,17 @@ install_cms(
 
 ## 🔁 Updating the CMS
 
+**Easiest:** open the admin UI and click the **"Update"** badge in the top bar — the CMS auto-detects new versions on GitHub and upgrades itself with one click. Your content, admin password and `.env` are preserved.
+
+**Or run on the host:**
 ```bash
 cd /app
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/zundIO/emergent-cms/main/install.sh)" -- --force
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/zundIO/emergent-cms/main/install.sh)" -- --upgrade
 ```
 
-Your content in MongoDB is preserved — only the `cms/` code is replaced.
+The `--upgrade` flag pulls the latest code, keeps `.env`, MongoDB data and the admin user intact, and only replaces the `cms/` source.
+
+`--force` is a hard overwrite (still preserves MongoDB but may prompt to reset env vars).
 
 ---
 

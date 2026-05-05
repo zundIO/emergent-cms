@@ -4,6 +4,10 @@ Exposes install_cms(app, ...) for mounting into any FastAPI application.
 """
 import os
 import copy
+import json
+import subprocess
+import threading
+import urllib.request
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any
@@ -1063,6 +1067,128 @@ async def serve_client_js():
     api_prefix = _config.get("api_prefix", "/api/cms")
     js = CLIENT_JS.replace("__API_PREFIX__", api_prefix)
     return Response(content=js, media_type="application/javascript")
+
+
+# ============================================================
+# HEALTH + SYSTEM (auto-update)
+# ============================================================
+
+
+def _read_version() -> Dict[str, Any]:
+    """Read /app/cms/VERSION (created by install.sh)."""
+    version_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")
+    if not os.path.isfile(version_file):
+        return {"commit": "unknown", "ref": "main", "repo": None, "installed_at": None}
+    try:
+        with open(version_file, "r") as f:
+            return json.loads(f.read())
+    except Exception:
+        return {"commit": "unknown", "ref": "main", "repo": None, "installed_at": None}
+
+
+def _fetch_latest_commit(repo_url: Optional[str], ref: str = "main") -> Optional[str]:
+    """Query the GitHub API for the latest commit SHA on the given ref."""
+    if not repo_url:
+        return None
+    # Convert https://github.com/user/repo.git → user/repo
+    try:
+        slug = repo_url.rstrip("/").replace(".git", "").split("github.com/")[-1]
+        api_url = f"https://api.github.com/repos/{slug}/commits/{ref}"
+        req = urllib.request.Request(api_url, headers={"Accept": "application/vnd.github+json"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read())
+            return data.get("sha")
+    except Exception as e:
+        print(f"[CMS] check-update failed: {e}")
+        return None
+
+
+@router.get("/system/version")
+async def get_version():
+    """Public — returns the currently installed CMS version."""
+    v = _read_version()
+    return {
+        "commit": v.get("commit", "unknown"),
+        "short": (v.get("commit") or "")[:8],
+        "ref": v.get("ref", "main"),
+        "installed_at": v.get("installed_at"),
+    }
+
+
+@router.get("/system/check-update")
+async def check_update(current_user: dict = Depends(require_admin)):
+    """Admin — compares local commit with the latest on GitHub."""
+    v = _read_version()
+    current_sha = v.get("commit", "unknown")
+    repo_url = v.get("repo")
+    ref = v.get("ref", "main")
+
+    if not repo_url:
+        return {
+            "current": current_sha,
+            "latest": None,
+            "update_available": False,
+            "reason": "VERSION file missing or repo URL unknown.",
+        }
+
+    latest_sha = _fetch_latest_commit(repo_url, ref)
+    if not latest_sha:
+        return {
+            "current": current_sha,
+            "latest": None,
+            "update_available": False,
+            "reason": "Could not reach GitHub API.",
+        }
+
+    return {
+        "current": current_sha,
+        "current_short": current_sha[:8],
+        "latest": latest_sha,
+        "latest_short": latest_sha[:8],
+        "update_available": (current_sha != latest_sha and current_sha != "unknown"),
+        "ref": ref,
+        "repo": repo_url,
+    }
+
+
+@router.post("/system/upgrade")
+async def upgrade_cms(current_user: dict = Depends(require_admin)):
+    """Admin — runs install.sh --upgrade in the background."""
+    v = _read_version()
+    repo_url = v.get("repo")
+    ref = v.get("ref", "main")
+
+    if not repo_url:
+        raise HTTPException(status_code=400, detail="VERSION file missing — cannot determine source repo.")
+
+    # Convert https://github.com/user/repo.git → raw URL for install.sh
+    try:
+        slug = repo_url.rstrip("/").replace(".git", "").split("github.com/")[-1]
+        install_url = f"https://raw.githubusercontent.com/{slug}/{ref}/install.sh"
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not derive install.sh URL: {e}")
+
+    # Run the upgrade in a background thread so we can return immediately.
+    # The backend will be restarted by supervisor at the end of install.sh.
+    def _run():
+        try:
+            print(f"[CMS] Self-upgrade starting from {install_url} (ref: {ref})…")
+            cmd = f'cd /app && bash -c "$(curl -fsSL {install_url})" -- --upgrade'
+            subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True, timeout=180)
+            print("[CMS] Self-upgrade finished successfully.")
+        except subprocess.CalledProcessError as e:
+            print(f"[CMS] Self-upgrade FAILED: {e.stderr or e.stdout}")
+        except Exception as e:
+            print(f"[CMS] Self-upgrade error: {e}")
+
+    threading.Thread(target=_run, daemon=True).start()
+
+    return {
+        "started": True,
+        "message": "Upgrade started. The backend will restart in ~30 seconds. Reload the admin UI afterwards.",
+        "from": v.get("commit", "unknown"),
+        "ref": ref,
+    }
 
 
 # ============================================================

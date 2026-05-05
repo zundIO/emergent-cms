@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Monitor, Tablet, Smartphone, TabletSmartphone, Undo2, Redo2, ChevronDown, Globe } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '../../components/ui/tooltip';
+import UpdateChecker from './UpdateChecker';
 
 const TopBar = ({
   currentPage,
@@ -293,6 +294,9 @@ const TopBar = ({
           >
             {publishing ? 'Publishing...' : 'Publish'}
           </button>
+
+          {/* CMS Update badge (only visible when an update is available) */}
+          <UpdateChecker />
 
           {/* User avatar */}
           <Tooltip>
