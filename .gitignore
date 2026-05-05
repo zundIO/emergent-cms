@@ -180,3 +180,8 @@ credentials.json
 *.pem
 *.key
 .credentials
+
+# Test reports (contain default test credentials, not for public push)
+test_reports/iteration_*.json
+test_reports/pytest/
+.emergent/summary.txt
