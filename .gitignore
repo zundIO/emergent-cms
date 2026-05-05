@@ -185,3 +185,12 @@ credentials.json
 test_reports/iteration_*.json
 test_reports/pytest/
 .emergent/summary.txt
+-e 
+# Environment and credential files
+.env
+.env.*
+*.env
+credentials.json
+*.pem
+*.key
+.credentials
