@@ -3,10 +3,10 @@
 # The Monolith CMS - One-Line Installer
 #
 # Usage (from inside your Emergent website's /app directory):
-#   curl -fsSL https://raw.githubusercontent.com/zundIO/cms/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/zundIO/emergent-cms/main/install.sh | bash
 #
 # Or specify a version / branch:
-#   curl -fsSL https://raw.githubusercontent.com/zundIO/cms/main/install.sh | CMS_REF=v1.0.0 bash
+#   curl -fsSL https://raw.githubusercontent.com/zundIO/emergent-cms/main/install.sh | CMS_REF=v1.0.0 bash
 #
 # This script:
 #   1. Downloads the CMS package into /app/cms/
@@ -18,7 +18,7 @@ set -euo pipefail
 
 # ---------- Configuration (override via env vars) ----------
 TARGET_DIR="${TARGET_DIR:-/app}"
-CMS_REPO="${CMS_REPO:-https://github.com/zundIO/cms.git}"
+CMS_REPO="${CMS_REPO:-https://github.com/zundIO/emergent-cms.git}"
 CMS_REF="${CMS_REF:-main}"
 CMS_ADMIN_EMAIL="${CMS_ADMIN_EMAIL:-admin@$(hostname -s 2>/dev/null || echo cms).local}"
 CMS_ADMIN_PASSWORD="${CMS_ADMIN_PASSWORD:-}"

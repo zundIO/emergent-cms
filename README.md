@@ -9,7 +9,7 @@ Full Google-Stitch React editor + FastAPI backend, installed into each website w
 
 ```bash
 cd /app
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/zundIO/cms/main/install.sh)"
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/zundIO/emergent-cms/main/install.sh)"
 ```
 
 What the installer does:
@@ -111,7 +111,7 @@ install_cms(
 
 ```bash
 cd /app
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/zundIO/cms/main/install.sh)" -- --force
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/zundIO/emergent-cms/main/install.sh)" -- --force
 ```
 
 Your content in MongoDB is preserved — only the `cms/` code is replaced.
@@ -138,7 +138,7 @@ Your content in MongoDB is preserved — only the `cms/` code is replaced.
 For contributors:
 
 ```bash
-git clone https://github.com/zundIO/cms.git
+git clone https://github.com/zundIO/emergent-cms.git
 cd cms
 
 # Backend dev server (in-place)
