@@ -109,9 +109,11 @@ REQ_FILE="$TARGET_DIR/backend/requirements.txt"
 PYTHON_BIN=$(command -v python3 || command -v python)
 [[ -n "$PYTHON_BIN" ]] || fail "python3 not found."
 
-# These should already exist in an Emergent stack but install defensively
+# These should already exist in an Emergent stack but install defensively.
+# tree-sitter packages are required for the Auto-Connect scanner.
 $PYTHON_BIN -m pip install --quiet --no-warn-script-location \
-  pymongo bcrypt pyjwt python-dotenv fastapi pydantic 2>&1 | tail -5 || true
+  pymongo bcrypt pyjwt python-dotenv fastapi pydantic \
+  tree-sitter tree-sitter-language-pack 2>&1 | tail -5 || true
 
 # ---------- Patch /app/backend/.env ----------
 log "Writing CMS env vars to /app/backend/.env…"

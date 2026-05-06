@@ -1209,7 +1209,18 @@ class ApplyConnectionRequest(BaseModel):
 @router.post("/system/scan-website")
 async def scan_website(req: ScanRequest, current_user: dict = Depends(require_admin)):
     """Admin — scan the host website's frontend source for editable elements."""
-    from . import scanner
+    try:
+        from . import scanner
+    except ImportError as e:
+        # tree-sitter not installed on host
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Auto-Connect scanner unavailable: tree-sitter packages are missing. "
+                "Run on the host: pip install tree-sitter tree-sitter-language-pack — "
+                f"or re-run install.sh --upgrade. (ImportError: {e})"
+            ),
+        )
 
     scan_root = req.scan_path or os.path.join(
         os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -1227,7 +1238,13 @@ async def scan_website(req: ScanRequest, current_user: dict = Depends(require_ad
             detail=f"Could not find frontend source. Tried {scan_root}. Set scan_path explicitly."
         )
 
-    suggestions = scanner.scan_directory(scan_root)
+    try:
+        suggestions = scanner.scan_directory(scan_root)
+    except Exception as e:
+        import traceback as _tb
+        _tb.print_exc()
+        raise HTTPException(status_code=500, detail=f"Scan failed: {type(e).__name__}: {e}")
+
     return {
         "scan_root": scan_root,
         "count": len(suggestions),

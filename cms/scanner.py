@@ -15,7 +15,11 @@ import re
 from dataclasses import dataclass, asdict
 from typing import List, Optional, Tuple
 
-from tree_sitter_language_pack import get_parser
+
+def _get_tsx_parser():
+    """Lazy import tree-sitter so the module is importable even if deps are missing."""
+    from tree_sitter_language_pack import get_parser
+    return get_parser("tsx")
 
 
 # Element tags we consider editable
@@ -158,7 +162,7 @@ def scan_file(path: str, root: str, start_index: int = 0) -> List[Suggestion]:
         src = f.read()
 
     # Use tsx parser — handles both .js with JSX and .tsx
-    parser = get_parser("tsx")
+    parser = _get_tsx_parser()
     tree = parser.parse(src)
     rel_file = os.path.relpath(path, root)
     page_slug = _derive_page_slug(rel_file)
